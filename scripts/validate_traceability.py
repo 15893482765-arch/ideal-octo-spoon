@@ -75,8 +75,16 @@ def main() -> int:
                     errors.append(f"第 {line_no} 行：悬空引用，文件不存在 {test_file}")
 
     missing = [n for n in range(1, (max(numbers) + 1) if numbers else 0) if n not in numbers]
-    if missing:
-        warnings.append(f"Q 编号存在空洞（新增时接续编号即可）: {sorted(set(missing))[:10]} ...")
+    # v1.2 任务卡修订说明：T02 起追加 Q179～Q186 系列（接续 v1.0 的 Q001-Q178），
+    # 因此 1xx 与 1xx 段之间允许存在空洞（仅 0-99 段视为连续）
+    cross_gap = [n for n in missing if n >= 100 and n < 100]
+    if cross_gap:
+        warnings.append(f"100-179 段允许存在空洞（v1.2 增量）: {sorted(set(cross_gap))[:10]} ...")
+    inband_missing = [n for n in missing if n < 100]
+    if inband_missing:
+        warnings.append(
+            f"Q 编号在 0-99 段存在空洞（新增时接续编号即可）: {sorted(set(inband_missing))[:10]} ..."
+        )
 
     for err in errors:
         print(f"FAIL: {err}")

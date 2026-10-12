@@ -48,6 +48,11 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    @property
+    def database_url_sync(self) -> str:
+        """Alembic 与同步测试使用的 URL：把 asyncpg 驱动替换为 psycopg2。"""
+        return self.database_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+
 
 @lru_cache
 def get_settings() -> Settings:
