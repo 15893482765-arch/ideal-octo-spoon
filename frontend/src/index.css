@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* 设计令牌（PRD/任务卡 1.3）：品牌青绿 #0F766E，状态色 emerald/amber/rose/sky/slate */
+:root {
+  --color-brand: #0f766e;
+}

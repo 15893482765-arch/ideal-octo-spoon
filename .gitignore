@@ -1,0 +1,29 @@
+# Python / uv
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / 前端
+node_modules/
+dist/
+coverage/
+*.local
+
+# 测试产物
+playwright-report/
+test-results/
+
+# 环境与密钥（红线：绝不入库）
+.env
+.env.*
+!.env.example
+
+# 编辑器与系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+~$*

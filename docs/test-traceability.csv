@@ -1,0 +1,5 @@
+card,test_id,test_file,test_node,command,fixture,prd_rule_or_scenario
+T01,Q001,backend/tests/test_health.py,test_healthz_ok;test_request_id_header_echoed;test_request_id_generated;test_domain_error_returns_unified_structure;test_unhandled_error_returns_unified_structure,cd backend && uv run pytest -q,tests/conftest.py::client / test_env,PRD 9.2 统一错误结构；9.4 观测（request-id）
+T01,Q002,backend/tests/test_config.py,test_missing_required_config_fails_fast;test_secrets_never_leak_in_repr;test_error_message_contains_no_secret_values;test_invalid_environment_rejected,cd backend && uv run pytest -q,tests/conftest.py::clean_env,PRD 9.4 安全（密钥不入日志/输出）
+T01,Q003,frontend/package.json#scripts,"pnpm typecheck && pnpm lint && pnpm test && pnpm build",cd frontend && pnpm typecheck && pnpm lint && pnpm test && pnpm build,frontend/src/App.test.tsx,PRD 9.1 前端技术栈
+T01,Q004,infra/docker-compose.yml,docker compose config + healthchecks,docker compose --env-file .env -f infra/docker-compose.yml config && docker compose --env-file .env -f infra/docker-compose.yml up -d --wait,根目录 .env（从 .env.example 复制）,PRD 9.1 基础设施（PostgreSQL16+PostGIS/Redis/S3）
