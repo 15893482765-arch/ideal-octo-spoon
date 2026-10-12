@@ -1,8 +1,8 @@
-"""initial_full_schema
+"""t03_user_auth_rbac
 
-Revision ID: 4cb9f31f0c27
+Revision ID: b79274a0c888
 Revises: 
-Create Date: 2026-10-12 10:03:43.556380
+Create Date: 2026-10-12 10:36:36.192593
 
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '4cb9f31f0c27'
+revision: str = 'b79274a0c888'
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -133,6 +133,7 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('code', sa.String(length=32), nullable=False),
     sa.Column('name', sa.String(length=128), nullable=False),
+    sa.Column('role_code', sa.String(length=32), nullable=False),
     sa.Column('is_active', sa.Boolean(), server_default=sa.text('true'), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -140,9 +141,11 @@ def upgrade() -> None:
     sa.Column('updated_by_id', sa.UUID(), nullable=True),
     sa.Column('dataset_type', sa.String(length=16), server_default=sa.text("'PRODUCTION'"), nullable=False),
     sa.Column('dataset_id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
+    sa.CheckConstraint("role_code IN ('SALES_REP','REGIONAL_MANAGER','SUPERVISOR','FINANCE','SYSTEM_ADMIN','SUPPLIER')", name='roles_role_code_check'),
     sa.CheckConstraint('char_length(code) > 0', name='roles_code_nonempty'),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('dataset_type', 'dataset_id', 'code', name='uq_roles_dataset_code')
+    sa.UniqueConstraint('dataset_type', 'dataset_id', 'code', name='uq_roles_dataset_code'),
+    sa.UniqueConstraint('dataset_type', 'dataset_id', 'role_code', name='uq_roles_dataset_role_code')
     )
     op.create_table('regions',
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
@@ -194,7 +197,13 @@ def upgrade() -> None:
     sa.Column('display_name', sa.String(length=128), nullable=False),
     sa.Column('phone', sa.String(length=32), nullable=True),
     sa.Column('role_id', sa.UUID(), nullable=False),
-    sa.Column('is_locked', sa.Boolean(), server_default=sa.text('false'), nullable=False),
+    sa.Column('status', sa.String(length=24), server_default=sa.text("'ACTIVE'"), nullable=False),
+    sa.Column('must_change_password', sa.Boolean(), server_default=sa.text('false'), nullable=False),
+    sa.Column('failed_login_count', sa.Integer(), server_default=sa.text('0'), nullable=False),
+    sa.Column('locked_until', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('last_login_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('password_changed_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('password_version', sa.Integer(), server_default=sa.text('1'), nullable=False),
     sa.Column('is_active', sa.Boolean(), server_default=sa.text('true'), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -203,11 +212,15 @@ def upgrade() -> None:
     sa.Column('dataset_type', sa.String(length=16), server_default=sa.text("'PRODUCTION'"), nullable=False),
     sa.Column('dataset_id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.CheckConstraint("password_hash LIKE '$argon2id$%%'", name='users_password_hash_format'),
+    sa.CheckConstraint("status IN ('ACTIVE','INACTIVE','PENDING_ACTIVATION')", name='users_status_check'),
     sa.CheckConstraint('char_length(username) >= 3', name='users_username_minlen'),
+    sa.CheckConstraint('failed_login_count >= 0', name='users_failed_login_nonneg'),
+    sa.CheckConstraint('password_version >= 1', name='users_password_version_positive'),
     sa.ForeignKeyConstraint(['role_id'], ['roles.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('dataset_type', 'dataset_id', 'username', name='uq_users_dataset_username')
     )
+    op.create_index('ix_users_status', 'users', ['status'], unique=False)
     op.create_table('activities',
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('name', sa.String(length=128), nullable=False),
@@ -282,6 +295,21 @@ def upgrade() -> None:
     )
     op.create_index('ix_audit_logs_actor_time', 'audit_logs', ['actor_id', 'occurred_at'], unique=False)
     op.create_index('ix_audit_logs_object', 'audit_logs', ['object_type', 'object_id'], unique=False)
+    op.create_table('auth_events',
+    sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
+    sa.Column('user_id', sa.UUID(), nullable=True),
+    sa.Column('actor_id', sa.UUID(), nullable=True),
+    sa.Column('event_type', sa.String(length=32), nullable=False),
+    sa.Column('occurred_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('request_id', sa.String(length=64), nullable=True),
+    sa.Column('payload', postgresql.JSONB(astext_type=sa.Text()), server_default=sa.text("'{}'::jsonb"), nullable=False),
+    sa.CheckConstraint("event_type IN ('LOGIN_SUCCESS','LOGIN_FAILED','ACTIVATION_CONSUMED','PASSWORD_CHANGED','PASSWORD_RESET_ISSUED','PASSWORD_RESET_CONSUMED','TOKEN_REVOKED','LOGOUT','ACCOUNT_LOCKED')", name='auth_events_event_type_check'),
+    sa.ForeignKeyConstraint(['actor_id'], ['users.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='RESTRICT'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_auth_events_actor_time', 'auth_events', ['actor_id', 'occurred_at'], unique=False)
+    op.create_index('ix_auth_events_user_time', 'auth_events', ['user_id', 'occurred_at'], unique=False)
     op.create_table('finance_transactions',
     sa.Column('id', sa.UUID(), server_default=sa.text('gen_random_uuid()'), nullable=False),
     sa.Column('biz_date', sa.Date(), nullable=False),
@@ -821,6 +849,9 @@ def downgrade() -> None:
     op.drop_index('ix_finance_tx_source', table_name='finance_transactions')
     op.drop_index('ix_finance_tx_biz_date', table_name='finance_transactions')
     op.drop_table('finance_transactions')
+    op.drop_index('ix_auth_events_user_time', table_name='auth_events')
+    op.drop_index('ix_auth_events_actor_time', table_name='auth_events')
+    op.drop_table('auth_events')
     op.drop_index('ix_audit_logs_object', table_name='audit_logs')
     op.drop_index('ix_audit_logs_actor_time', table_name='audit_logs')
     op.drop_table('audit_logs')
@@ -831,6 +862,7 @@ def downgrade() -> None:
     op.drop_table('ai_logs')
     op.drop_index('ix_activities_window', table_name='activities')
     op.drop_table('activities')
+    op.drop_index('ix_users_status', table_name='users')
     op.drop_table('users')
     op.drop_index('ix_skus_dataset', table_name='skus')
     op.drop_table('skus')

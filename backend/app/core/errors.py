@@ -30,6 +30,26 @@ class ConfigurationError(DomainError):
     """配置缺失/非法时启动失败的领域异常。"""
 
 
+class AuthError(DomainError):
+    """认证域错误基类（登录失败、未激活、锁定、凭据过期等）。"""
+
+
+class InvalidCredentialsError(AuthError):
+    """用户名或密码错误。"""
+
+
+class AccountLockedError(AuthError):
+    """账号被锁定或待激活，登录被拒。"""
+
+
+class ActivationRequiredError(AuthError):
+    """账号尚未激活或一次性凭据已消费。"""
+
+
+class PermissionDeniedError(DomainError):
+    """权限不足（行级范围或能力权限）。"""
+
+
 def error_response_body(
     code: str, message: str, details: dict[str, Any] | None = None
 ) -> dict[str, Any]:

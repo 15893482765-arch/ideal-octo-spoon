@@ -55,7 +55,13 @@ def _make_sku(session, code: str, brand_id) -> Sku:
 
 def test_user_username_unique_within_dataset(session) -> None:
     org, region, brand = _seed_basics(session)
-    role = Role(code="MGR", name="经理", dataset_type="PRODUCTION", dataset_id=uuid4())
+    role = Role(
+        code="MGR",
+        name="经理",
+        role_code="REGIONAL_MANAGER",
+        dataset_type="PRODUCTION",
+        dataset_id=uuid4(),
+    )
     session.add(role)
     session.flush()
     dsid = uuid4()
@@ -255,7 +261,13 @@ def test_replenishment_order_code_unique(session) -> None:
 
 def test_user_region_brand_unique(session) -> None:
     org, region, brand = _seed_basics(session)
-    role = Role(code="REP", name="业务员", dataset_type="PRODUCTION", dataset_id=uuid4())
+    role = Role(
+        code="REP",
+        name="业务员",
+        role_code="SALES_REP",
+        dataset_type="PRODUCTION",
+        dataset_id=uuid4(),
+    )
     session.add(role)
     session.flush()
     u = User(

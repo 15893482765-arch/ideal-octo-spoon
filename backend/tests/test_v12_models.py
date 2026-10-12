@@ -34,7 +34,13 @@ def _seed_org_brand_region(session):
 
 
 def _seed_operator(session, code: str = "OP") -> User:
-    role = Role(code=code, name="操作员", dataset_type="PRODUCTION", dataset_id=uuid4())
+    role = Role(
+        code=code,
+        name="操作员",
+        role_code="SUPERVISOR",
+        dataset_type="PRODUCTION",
+        dataset_id=uuid4(),
+    )
     session.add(role)
     session.flush()
     u = User(

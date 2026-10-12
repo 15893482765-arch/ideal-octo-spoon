@@ -2,13 +2,14 @@
 
 from app.db.base import Base
 from app.models.approval import ApprovalRequest, TaskItem
-from app.models.audit import AiLog, AuditLog, ImportBatch
+from app.models.audit import AiLog, AuditLog, AuthEvent, ImportBatch
 from app.models.contract import Contract, ContractApproval, ContractChange
 from app.models.core import Brand, Organization, Region
 from app.models.enums import (
     ActivityStatus,
     ApprovalStatus,
     AuditEventType,
+    AuthEventType,
     ContractStatus,
     FreezerAssetStatus,
     FreezerMovementType,
@@ -20,8 +21,11 @@ from app.models.enums import (
     RiskObjectType,
     RiskRuleCode,
     RiskStatus,
+    RoleCode,
     ScheduleStatus,
     TaskStatus,
+    TokenKind,
+    UserStatus,
     VisitRecordStatus,
     VisitTaskStatus,
 )
@@ -90,6 +94,7 @@ __all__ = [
     # audit/import
     "AuditLog",
     "AiLog",
+    "AuthEvent",
     "ImportBatch",
     # v1.2 risk/idempotency
     "RiskItem",
@@ -98,6 +103,7 @@ __all__ = [
     "ActivityStatus",
     "ApprovalStatus",
     "AuditEventType",
+    "AuthEventType",
     "ContractStatus",
     "FreezerAssetStatus",
     "FreezerMovementType",
@@ -109,8 +115,11 @@ __all__ = [
     "RiskObjectType",
     "RiskRuleCode",
     "RiskStatus",
+    "RoleCode",
     "ScheduleStatus",
     "TaskStatus",
+    "TokenKind",
+    "UserStatus",
     "VisitRecordStatus",
     "VisitTaskStatus",
 ]

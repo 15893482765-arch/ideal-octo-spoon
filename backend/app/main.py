@@ -11,6 +11,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.admin_users import router as admin_users_router
+from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.core.config import get_settings
 from app.core.handlers import register_exception_handlers
@@ -24,6 +26,12 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        from app.db.session import session_scope
+        from app.services.bootstrap import bootstrap_initial_admin
+
+        # 首次启动：若配置了 INITIAL_ADMIN_BOOTSTRAP 且没有系统管理员，自动建号
+        with session_scope() as s:
+            bootstrap_initial_admin(s, settings)
         yield
 
     app = FastAPI(
@@ -35,6 +43,8 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RequestContextMiddleware)
     app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(admin_users_router)
     register_exception_handlers(app)
     return app
 

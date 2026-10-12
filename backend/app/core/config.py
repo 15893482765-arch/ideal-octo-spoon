@@ -1,8 +1,9 @@
 """应用配置。
 
-安全约束（PRD §9.4 / T01 红线）：
+安全约束（PRD §9.4 / T01 红线 / T03 红线）：
 - 密钥一律 SecretStr，repr/日志/JSON 序列化只显示掩码，不出现明文；
-- 必填配置缺失时启动即失败（fail-fast），且错误信息不包含任何密钥值。
+- 必填配置缺失时启动即失败（fail-fast），且错误信息不包含任何密钥值；
+- 认证域参数（TTL、限流、厂商开关）集中在本文件，禁止散落在路由/Service。
 """
 
 from __future__ import annotations
@@ -46,7 +47,33 @@ class Settings(BaseSettings):
     # 演示数据总开关：生产环境必须为 false（PRD §8 存储约束）
     demo_data_enabled: bool = False
 
+    # 厂商协作方总开关（PRD §2.3）：默认关闭，开启后厂商可登录
+    supplier_portal_enabled: bool = False
+
     log_level: str = "INFO"
+
+    # ===== 认证域（T03）=====
+    # access token 寿命：短期，便于被踢
+    access_token_ttl_seconds: int = 900
+    # refresh token 寿命：较长（30 天），但被踢/改密后立即失效
+    refresh_token_ttl_seconds: int = 60 * 60 * 24 * 30
+    # 连续登录失败上限；达到后锁定账号
+    max_login_failures: int = 5
+    # 锁定持续时间（秒）
+    login_lockout_seconds: int = 900
+    # 一次性激活凭据寿命（秒）：默认 7 天
+    activation_ttl_seconds: int = 60 * 60 * 24 * 7
+    # 一次性密码重置凭据寿命（秒）：默认 24 小时
+    password_reset_ttl_seconds: int = 60 * 60 * 24
+
+    # ===== 一次性 bootstrap（首次初始化管理员）=====
+    # 仅当环境中存在下列 3 个变量时启用，且仅在没有系统管理员时执行一次：
+    # INITIAL_ADMIN_USERNAME / INITIAL_ADMIN_PASSWORD / INITIAL_ADMIN_DISPLAY_NAME
+    # 生产部署后应立即从 env 移除 INITIAL_ADMIN_PASSWORD。
+    initial_admin_username: str | None = None
+    initial_admin_password: SecretStr | None = None
+    initial_admin_display_name: str | None = None
+    initial_admin_bootstrap: bool = False
 
     @property
     def database_url_sync(self) -> str:
