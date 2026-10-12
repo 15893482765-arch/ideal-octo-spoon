@@ -3,6 +3,7 @@
 错误码到 HTTP 状态的映射：
 - AuthError（认证域）        -> 401 UNAUTHORIZED
 - PermissionDeniedError（权限）-> 403 FORBIDDEN
+- ConflictError（幂等冲突）    -> 409 CONFLICT
 - DomainError（业务）         -> 422 UNPROCESSABLE_ENTITY
 - 其它未捕获                  -> 500 INTERNAL_ERROR
 """
@@ -14,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.errors import (
     AuthError,
+    ConflictError,
     DomainError,
     PermissionDeniedError,
     error_response_body,
@@ -30,6 +32,13 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         return JSONResponse(
             status_code=403,
+            content=error_response_body(exc.code, exc.message, exc.details),
+        )
+
+    @app.exception_handler(ConflictError)
+    async def conflict_error_handler(_: Request, exc: ConflictError) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
             content=error_response_body(exc.code, exc.message, exc.details),
         )
 

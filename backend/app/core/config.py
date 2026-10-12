@@ -75,6 +75,21 @@ class Settings(BaseSettings):
     initial_admin_display_name: str | None = None
     initial_admin_bootstrap: bool = False
 
+    # ===== 文件域（T04 / PRD §8：S3 兼容存储 + 短期签名 URL）=====
+    # 上传 MIME 白名单（逗号分隔）；不在名单内的类型直接拒绝
+    file_upload_whitelist: str = "image/jpeg,image/png,image/webp,application/pdf"
+    # 单文件大小上限（字节）：默认 10MB
+    file_max_size_bytes: int = 10 * 1024 * 1024
+    # 签名下载 URL 有效期（秒）：短期，默认 5 分钟
+    file_signed_url_ttl_seconds: int = 300
+    # 存储后端：local（本地文件系统，开发/测试）/ s3（MinIO 等 S3 兼容）
+    storage_backend: Literal["local", "s3"] = "local"
+    local_storage_dir: str = "./.data/storage"
+
+    # ===== 幂等域（T04 / PRD §5.4）=====
+    # 幂等键保留期（小时）：过期后后台清理，窗口外同键视为新请求
+    idempotency_retention_hours: int = 24 * 7
+
     @property
     def database_url_sync(self) -> str:
         """Alembic 与同步测试使用的 URL：把 asyncpg 驱动替换为 psycopg2。"""

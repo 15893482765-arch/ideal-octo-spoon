@@ -22,7 +22,13 @@ from app.db.base import AuditMixin, Base, DatasetMixin, pk_uuid
 
 
 class AuditLog(Base):
-    """全局审计：写操作与审计同事务（PRD §5/§8 红线）。"""
+    """全局审计：写操作与审计同事务（PRD §5/§8 红线、R23、R30）。
+
+    - T04 起 AuditService 统一写本表：actor、原因（reason）、前后值
+      （before_json/after_json）、request_id 全部落列，普通用户无修改入口；
+    - before/after 在写入前经 redact() 脱敏，凭据正文永不入库；
+    - 本表只增不改：Service 层不提供 UPDATE/DELETE 路径。
+    """
 
     __tablename__ = "audit_logs"
     __table_args__ = (
@@ -45,6 +51,11 @@ class AuditLog(Base):
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     request_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # T04：操作原因（驳回/终止/状态迁移必须填原因，R24）
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # T04：变更前后快照（JSONB，写入前已脱敏）
+    before_json: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
+    after_json: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
     payload: Mapped[dict[str, Any]] = mapped_column(
         nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )

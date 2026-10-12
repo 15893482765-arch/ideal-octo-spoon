@@ -50,6 +50,14 @@ class PermissionDeniedError(DomainError):
     """权限不足（行级范围或能力权限）。"""
 
 
+class ConflictError(DomainError):
+    """资源冲突：幂等同键异参、并发占位等（HTTP 409）。"""
+
+
+class FileAccessError(DomainError):
+    """文件域错误：类型/大小不合规、越权访问、签名失效、隔离中。"""
+
+
 def error_response_body(
     code: str, message: str, details: dict[str, Any] | None = None
 ) -> dict[str, Any]:

@@ -1,10 +1,4 @@
-"""服务层入口：所有写操作必须经 Service。
-
-T03 当前导出：
-- AuthService：登录、改密、激活、重置、登出、刷新
-- UserAdminService：系统管理员建号/停用/启用/重置
-"""
-
+from app.services.audit_service import AuditService
 from app.services.auth_service import (
     ActivationResult,
     AuthService,
@@ -12,11 +6,26 @@ from app.services.auth_service import (
     ResetResult,
 )
 from app.services.bootstrap import bootstrap_initial_admin
+from app.services.file_service import FileService
+from app.services.idempotency_service import IdempotencyService
+from app.services.storage import (
+    LocalFSStorage,
+    S3Storage,
+    StorageBackend,
+    get_storage_backend,
+)
 from app.services.user_admin_service import CreatedAccount, UserAdminService
 
 __all__ = [
     "AuthService",
     "UserAdminService",
+    "AuditService",
+    "IdempotencyService",
+    "FileService",
+    "StorageBackend",
+    "LocalFSStorage",
+    "S3Storage",
+    "get_storage_backend",
     "bootstrap_initial_admin",
     "LoginResult",
     "ActivationResult",

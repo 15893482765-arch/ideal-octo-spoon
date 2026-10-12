@@ -29,14 +29,16 @@ from app.models.enums import (
     VisitRecordStatus,
     VisitTaskStatus,
 )
+from app.models.file_object import FileObject
 from app.models.finance import FinanceTransaction
 from app.models.freezer import FreezerAsset, FreezerMovement
+from app.models.idempotency import IdempotencyKey
 from app.models.merchant import Merchant, MerchantContact, MerchantGradeFrequency
 from app.models.performance import PayrollRecord, PerformanceRecord
 from app.models.procurement import ProcurementDelivery, ProcurementOrder
 from app.models.product import ProductCategory, Sku
 from app.models.replenishment import ReplenishmentConfirm, ReplenishmentOrder
-from app.models.risk import IdempotencyKey, RiskItem
+from app.models.risk import RiskItem
 from app.models.sales import SalesConfirmation
 from app.models.schedule import Activity, ActivitySampleLedger, Schedule
 from app.models.supervision import SupervisorIssue
@@ -91,14 +93,16 @@ __all__ = [
     # approval/task
     "ApprovalRequest",
     "TaskItem",
+    # v1.2 risk
+    "RiskItem",
     # audit/import
     "AuditLog",
     "AiLog",
     "AuthEvent",
     "ImportBatch",
-    # v1.2 risk/idempotency
-    "RiskItem",
+    # T04 idempotency/files
     "IdempotencyKey",
+    "FileObject",
     # enums
     "ActivityStatus",
     "ApprovalStatus",

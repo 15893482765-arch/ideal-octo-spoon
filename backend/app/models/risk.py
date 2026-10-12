@@ -1,6 +1,8 @@
 """v1.2 R36：风险表（RiskItem）。幂等生成、关闭留痕。
 
 唯一约束：(object_type, object_id, rule_code, period) 同一周期不重复生成。
+
+（T04 起 IdempotencyKey 迁至 app/models/idempotency.py 并扩展为通用幂等内核。）
 """
 
 from __future__ import annotations
@@ -80,25 +82,3 @@ class RiskItem(Base, AuditMixin, DatasetMixin):
     data_incomplete: Mapped[bool] = mapped_column(
         nullable=False, default=False, server_default=text("false")
     )
-
-
-class IdempotencyKey(Base):
-    """幂等键全局表：避免重复提交。
-
-    与 visit_records.idempotency_key 配合：服务端校验同 key+actor 在 TTL 内已处理则返回原结果。
-    """
-
-    __tablename__ = "idempotency_keys"
-    __table_args__ = (
-        UniqueConstraint("key", "actor_id", name="uq_idempotency_key_actor"),
-        Index("ix_idempotency_keys_expires", "expires_at"),
-    )
-
-    id: Mapped[UUID] = pk_uuid()
-    key: Mapped[str] = mapped_column(String(64), nullable=False)
-    actor_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
-    response_ref: Mapped[str] = mapped_column(String(128), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=text("now()")
-    )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
