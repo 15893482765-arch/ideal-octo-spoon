@@ -41,6 +41,18 @@ from app.models.replenishment import ReplenishmentConfirm, ReplenishmentOrder
 from app.models.risk import RiskItem
 from app.models.sales import SalesConfirmation
 from app.models.schedule import Activity, ActivitySampleLedger, Schedule
+from app.models.seed import (
+    DEMO_DATASET_ID_DEFAULT,
+    SEED_STATUS_FAILED,
+    SEED_STATUS_PENDING,
+    SEED_STATUS_RUNNING,
+    SEED_STATUS_SUCCEEDED,
+    SEED_TYPE_BUSINESS,
+    SEED_TYPE_EMPTY,
+    SEED_TYPE_MASTER,
+    SEED_TYPES,
+    SeedBatch,
+)
 from app.models.supervision import SupervisorIssue
 from app.models.user import Role, User, UserRegionBrandAuth
 from app.models.visit import VisitRecord, VisitTask
@@ -103,6 +115,17 @@ __all__ = [
     # T04 idempotency/files
     "IdempotencyKey",
     "FileObject",
+    # T06 demo seed
+    "SeedBatch",
+    "DEMO_DATASET_ID_DEFAULT",
+    "SEED_STATUS_PENDING",
+    "SEED_STATUS_RUNNING",
+    "SEED_STATUS_SUCCEEDED",
+    "SEED_STATUS_FAILED",
+    "SEED_TYPE_MASTER",
+    "SEED_TYPE_BUSINESS",
+    "SEED_TYPE_EMPTY",
+    "SEED_TYPES",
     # enums
     "ActivityStatus",
     "ApprovalStatus",

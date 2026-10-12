@@ -21,6 +21,22 @@ from app.services.auth_service import (
 )
 from app.services.bootstrap import bootstrap_initial_admin
 from app.services.business_transition_service import BusinessTransitionService
+from app.services.data_scope_validator import (
+    DataScopeValidator,
+    ScopeRule,
+    count_demo_records_in_production_scope,
+    data_scope_validator,
+    find_demo_merchant_with_production_contract,
+    find_payroll_referencing_demo_performance,
+    required_scope_for_role,
+)
+from app.services.demo_data_guard import (
+    DataScope,
+    assert_demo_disabled_in_production,
+    assert_production_scope,
+    assert_same_dataset,
+    same_dataset,
+)
 from app.services.file_service import FileService
 from app.services.idempotency_service import IdempotencyService
 from app.services.state_machine import (
@@ -94,4 +110,19 @@ __all__ = [
     "DOMAIN_PROCUREMENT",
     "DOMAIN_PERFORMANCE",
     "DOMAIN_PAYROLL",
+    # T06
+    "SeedCheckService",
+    "build_empty_check_for_environment",
+    "DataScope",
+    "assert_production_scope",
+    "assert_same_dataset",
+    "same_dataset",
+    "assert_demo_disabled_in_production",
+    "DataScopeValidator",
+    "ScopeRule",
+    "data_scope_validator",
+    "count_demo_records_in_production_scope",
+    "find_demo_merchant_with_production_contract",
+    "find_payroll_referencing_demo_performance",
+    "required_scope_for_role",
 ]

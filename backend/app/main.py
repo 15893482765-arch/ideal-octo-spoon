@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from app.api.admin_users import router as admin_users_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.v1.seed import router as seed_router
 from app.core.config import get_settings
 from app.core.handlers import register_exception_handlers
 from app.core.logging import configure_logging
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(auth_router)
     app.include_router(admin_users_router)
+    app.include_router(seed_router)
     register_exception_handlers(app)
     return app
 

@@ -44,8 +44,14 @@ class Settings(BaseSettings):
     s3_secret_key: SecretStr
     s3_bucket: str = "qinshuang"
 
-    # 演示数据总开关：生产环境必须为 false（PRD §8 存储约束）
+    # 演示数据总开关：生产环境必须为 false（PRD §8 存储约束 / R24）
     demo_data_enabled: bool = False
+    # 生产数据集硬锁：当 environment=="production" 时，启动期硬性要求
+    # `demo_data_enabled=False` 且 `production_dataset_lock=True`，禁止任何
+    # `dataset_type=DEMO` 批次进入（PRD §10.2、T06 Q031）。
+    production_dataset_lock: bool = True
+    # 显式启用 `python -m app.cli.db seed-check` 类 CLI：默认 dev/test 可用
+    enable_seed_cli: bool = True
 
     # 厂商协作方总开关（PRD §2.3）：默认关闭，开启后厂商可登录
     supplier_portal_enabled: bool = False
