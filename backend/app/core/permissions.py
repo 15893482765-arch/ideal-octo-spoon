@@ -37,6 +37,7 @@ MODULE_PERFORMANCE = "performance"
 MODULE_PAYROLL = "payroll"  # 工资发放；系统管理员不自动获得
 MODULE_PAYROLL_DISBURSE = "payroll.disburse"  # 标记"已发放"
 MODULE_AUDIT = "audit"
+MODULE_APPROVAL = "approval"  # 审批节点能力（T05 §5.3.1 approval.decide）
 MODULE_SETTINGS = "settings"
 MODULE_SUPPLIER_CONFIRM = "supplier.confirm_supply"  # 厂商确认供货
 
@@ -114,6 +115,7 @@ _PROFILE_REGIONAL_MANAGER = RoleProfile(
             MODULE_ACTIVITY,
             MODULE_PROCUREMENT,
             MODULE_PERFORMANCE,
+            MODULE_APPROVAL,
         }
     ),
     row_scope="region",
@@ -133,6 +135,7 @@ _PROFILE_SUPERVISOR = RoleProfile(
             MODULE_REPLENISHMENT,
             MODULE_SCHEDULE,
             MODULE_ACTIVITY,
+            MODULE_APPROVAL,
         }
     ),
     row_scope="region",
@@ -151,6 +154,7 @@ _PROFILE_FINANCE = RoleProfile(
             MODULE_PAYROLL,
             MODULE_PAYROLL_DISBURSE,
             MODULE_REPLENISHMENT,
+            MODULE_APPROVAL,
         }
     ),
     row_scope="global",
@@ -177,6 +181,7 @@ _PROFILE_SYSTEM_ADMIN = RoleProfile(
             MODULE_PROCUREMENT,
             MODULE_FINANCE,
             MODULE_PERFORMANCE,
+            MODULE_APPROVAL,
         }
     ),
     row_scope="global",

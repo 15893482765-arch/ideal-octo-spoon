@@ -1,3 +1,17 @@
+from app.services.approval_matrix import (
+    APPROVER_ROLES,
+    ApprovalRule,
+    assert_decision_authority,
+    assert_decision_reason,
+    get_rule,
+    role_competent_for,
+)
+from app.services.approval_service import (
+    DECISION_APPROVED,
+    DECISION_REJECTED,
+    DECISION_RETURNED,
+    ApprovalService,
+)
 from app.services.audit_service import AuditService
 from app.services.auth_service import (
     ActivationResult,
@@ -6,13 +20,34 @@ from app.services.auth_service import (
     ResetResult,
 )
 from app.services.bootstrap import bootstrap_initial_admin
+from app.services.business_transition_service import BusinessTransitionService
 from app.services.file_service import FileService
 from app.services.idempotency_service import IdempotencyService
+from app.services.state_machine import (
+    DOMAIN_CONTRACT,
+    DOMAIN_FREEZER,
+    DOMAIN_PAYROLL,
+    DOMAIN_PERFORMANCE,
+    DOMAIN_PROCUREMENT,
+    DOMAIN_REPLENISHMENT,
+    DOMAIN_SUPERVISION_ISSUE,
+    assert_legal_transition,
+    get_graph,
+    legal_targets,
+)
 from app.services.storage import (
     LocalFSStorage,
     S3Storage,
     StorageBackend,
     get_storage_backend,
+)
+from app.services.task_service import (
+    SOURCE_DIRECT,
+    SOURCE_RELATED_DOCUMENT,
+    SOURCE_SYSTEM,
+    TASK_KIND_OTHER,
+    TaskService,
+    all_task_kinds,
 )
 from app.services.user_admin_service import CreatedAccount, UserAdminService
 
@@ -31,4 +66,32 @@ __all__ = [
     "ActivationResult",
     "ResetResult",
     "CreatedAccount",
+    # T05
+    "ApprovalService",
+    "ApprovalRule",
+    "APPROVER_ROLES",
+    "assert_decision_authority",
+    "assert_decision_reason",
+    "get_rule",
+    "role_competent_for",
+    "DECISION_APPROVED",
+    "DECISION_REJECTED",
+    "DECISION_RETURNED",
+    "TaskService",
+    "all_task_kinds",
+    "TASK_KIND_OTHER",
+    "SOURCE_DIRECT",
+    "SOURCE_RELATED_DOCUMENT",
+    "SOURCE_SYSTEM",
+    "BusinessTransitionService",
+    "assert_legal_transition",
+    "get_graph",
+    "legal_targets",
+    "DOMAIN_CONTRACT",
+    "DOMAIN_FREEZER",
+    "DOMAIN_REPLENISHMENT",
+    "DOMAIN_SUPERVISION_ISSUE",
+    "DOMAIN_PROCUREMENT",
+    "DOMAIN_PERFORMANCE",
+    "DOMAIN_PAYROLL",
 ]

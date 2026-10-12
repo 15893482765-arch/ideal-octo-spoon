@@ -104,6 +104,7 @@ class ApprovalStatus(StrEnum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
+    RETURNED = "RETURNED"  # 退回申请人补充材料（区别于驳回）
     WITHDRAWN = "WITHDRAWN"
 
 
