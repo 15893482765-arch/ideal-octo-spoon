@@ -1,0 +1,119 @@
+# 沁爽饮料分销管理平台 · 精简生产部署（2G 内存服务器适配）
+# 仅核心：PostgreSQL16+PostGIS + Redis + 后端（含前端托管）
+# 已移除：Qdrant（语义检索降级）、MinIO（本地文件存储）
+# 用法：docker compose -f infra/docker-compose.prod.yml --env-file infra/.env.production up -d
+
+name: qinshuang
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: qinshuang-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-qinshuang}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-qinshuang}
+      TZ: UTC
+    # 2G 内存服务器：限制内存并降低 PG 共享内存占用
+    shm_size: 256mb
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-qinshuang} -d ${POSTGRES_DB:-qinshuang}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: qinshuang-redis
+    mem_limit: 128m
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    image: ${API_IMAGE:-qinshuang-backend:prod}
+    container_name: qinshuang-migrate
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY required}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-qinshuang}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-qinshuang}
+      REDIS_URL: redis://redis:6379/0
+      # S3 字段为配置必填（即使 storage_backend=local 也需占位，实际不连接）
+      S3_ENDPOINT_URL: http://localhost:9000
+      S3_ACCESS_KEY: placeholder-access-key
+      S3_SECRET_KEY: placeholder-secret-key
+      S3_BUCKET: qinshuang
+    restart: "no"
+
+  api:
+    image: ${API_IMAGE:-qinshuang-backend:prod}
+    container_name: qinshuang-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    mem_limit: 768m
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY required}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-qinshuang}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-qinshuang}
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_DIR: /app/backend/.data/storage
+      S3_ENDPOINT_URL: http://localhost:9000
+      S3_ACCESS_KEY: placeholder-access-key
+      S3_SECRET_KEY: placeholder-secret-key
+      S3_BUCKET: qinshuang
+      DEMO_DATA_ENABLED: "false"
+      PRODUCTION_DATASET_LOCK: "true"
+      SUPPLIER_PORTAL_ENABLED: ${SUPPLIER_PORTAL_ENABLED:-false}
+      INITIAL_ADMIN_BOOTSTRAP: ${INITIAL_ADMIN_BOOTSTRAP:-false}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      INITIAL_ADMIN_DISPLAY_NAME: ${INITIAL_ADMIN_DISPLAY_NAME:-系统管理员}
+      EMBEDDING_ENABLED: "false"
+      QDRANT_ENABLED: "false"
+      AI_CHAT_PROVIDER: ${AI_CHAT_PROVIDER:-mock}
+      AI_MODEL: ${AI_MODEL:-deepseek-flash}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_CHAT_TIMEOUT_SECONDS: "25"
+      AI_TIMEOUT_SECONDS: "30"
+      RATE_LIMIT_BACKEND: redis
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      PAYROLL_DUAL_FINANCE_REVIEW: "true"
+      FILE_SCAN_ENABLED: "false"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - appdata:/app/backend/.data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  appdata:

@@ -101,11 +101,21 @@ def test_deposit_movement_types_allowed(session) -> None:
     )
     session.add(asset)
     session.flush()
+    # T10（R37）：押金收缴必须关联投放单；先造一条 DEPLOY 流水作为关联单据
+    m_deploy = FreezerMovement(
+        asset_id=asset.id,
+        movement_type=FreezerMovementType.DEPLOY.value,
+        operator_id=operator.id,
+        to_status="DEPLOYED",
+    )
+    session.add(m_deploy)
+    session.flush()
     m_collected = FreezerMovement(
         asset_id=asset.id,
         movement_type=FreezerMovementType.DEPOSIT_COLLECTED.value,
         operator_id=operator.id,
         amount_fen=50000,
+        related_movement_id=m_deploy.id,  # R37：押金收缴关联投放单
     )
     session.add(m_collected)
     session.flush()

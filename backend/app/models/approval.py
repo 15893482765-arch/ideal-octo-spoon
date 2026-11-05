@@ -90,7 +90,8 @@ class TaskItem(Base, AuditMixin):
             "task_kind IN ('VISIT_PLANNED','CONTRACT_RENEWAL_REVIEW','FREEZER_RECALL',"
             "'FREEZER_ACCEPTANCE','FREEZER_DEPOSIT_REFUND','REPLENISHMENT_REVIEW',"
             "'PROBLEM_RECTIFICATION','SUPERVISION_RECTIFICATION','PROBLEM_RECTIFICATION_VERIFY',"
-            "'CONTRACT_RENEWAL_VERIFY','CONTRACT_EXPIRING_RENEWAL_EVAL','OTHER')",
+            "'CONTRACT_RENEWAL_VERIFY','CONTRACT_EXPIRING_RENEWAL_EVAL',"
+            "'CAMPAIGN_SAMPLE_RETURN','RISK_HANDLING','OTHER')",
             name="task_items_task_kind_check",
         ),
         CheckConstraint(
@@ -99,12 +100,16 @@ class TaskItem(Base, AuditMixin):
             name="task_items_completion_source_check",
         ),
         Index("ix_task_items_assignee_status", "assignee_id", "status"),
-        # 幂等：同 (related_object_type, related_object_id, task_kind) 仅允许一条 OPEN/IN_PROGRESS
+        # 幂等：同 (related_object_type, related_object_id, task_kind, assignee_id)
+        # 仅允许一条 OPEN/IN_PROGRESS（R27）。T09 起把责任人纳入维度：续签评估
+        # 需为责任业务员与片区经理各生成一条（R38/RK-6），故同对象同类型允许
+        # 不同责任人各持一条未关闭任务。
         Index(
             "uq_task_items_idempotent",
             "related_object_type",
             "related_object_id",
             "task_kind",
+            "assignee_id",
             unique=True,
             postgresql_where=text("status IN ('OPEN','IN_PROGRESS')"),
         ),

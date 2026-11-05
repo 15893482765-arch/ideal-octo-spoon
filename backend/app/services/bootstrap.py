@@ -9,9 +9,10 @@
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -19,6 +20,10 @@ from app.core.errors import DomainError
 from app.core.security import hash_password
 from app.models import Role, User
 from app.models.enums import RoleCode, UserStatus
+
+# 引导管理员的固定数据域：全平台仅此一个，用于让
+# uq_users_dataset_username 成为「多副本并发引导」的仲裁者（见 bootstrap_initial_admin）。
+BOOTSTRAP_DATASET_ID: UUID = uuid5(NAMESPACE_URL, "qinshuang/platform/bootstrap-admin")
 
 
 def ensure_system_admin_role(
@@ -82,25 +87,30 @@ def bootstrap_initial_admin(session: Session, settings: Settings) -> dict[str, A
     if existing is not None:
         return None
 
-    # 首任管理员使用独立 dataset_id，便于演示数据隔离
-    import uuid as _uuid
-
-    dsid = _uuid.uuid4()
-    role = ensure_system_admin_role(session, dataset_id=dsid)
-    user = User(
-        username=settings.initial_admin_username.strip().lower(),
-        display_name=settings.initial_admin_display_name.strip(),
-        phone=None,
-        role_id=role.id,
-        status=UserStatus.ACTIVE.value,
-        must_change_password=True,
-        password_hash=hash_password(settings.initial_admin_password.get_secret_value()),
-        dataset_type="PRODUCTION",
-        dataset_id=dsid,
-    )
-    session.add(user)
+    # 首任管理员使用固定的独立 dataset_id（而非每次随机）：
+    # 多 worker / 多副本同时启动时，各自都会通过上面的“不存在”检查，
+    # 此时由 uq_users_dataset_username 唯一约束裁决——只有第一个插入成功，
+    # 其余捕获唯一冲突并视为“引导已完成”，绝不产生重复管理员账号。
+    dsid = BOOTSTRAP_DATASET_ID
     try:
+        role = ensure_system_admin_role(session, dataset_id=dsid)
+        user = User(
+            username=settings.initial_admin_username.strip().lower(),
+            display_name=settings.initial_admin_display_name.strip(),
+            phone=None,
+            role_id=role.id,
+            status=UserStatus.ACTIVE.value,
+            must_change_password=True,
+            password_hash=hash_password(settings.initial_admin_password.get_secret_value()),
+            dataset_type="PRODUCTION",
+            dataset_id=dsid,
+        )
+        session.add(user)
         session.commit()
+    except IntegrityError:
+        # 另一个副本已抢先完成引导：幂等成功（不是错误）
+        session.rollback()
+        return None
     except Exception as exc:
         session.rollback()
         raise DomainError(code="BOOTSTRAP_FAILED", message="首次系统管理员创建失败") from exc

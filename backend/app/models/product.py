@@ -60,3 +60,23 @@ class Sku(Base, ImmutableMixin, AuditMixin, DatasetMixin):
     case_spec: Mapped[Decimal] = mapped_column(
         Numeric(12, 2), nullable=False, default=Decimal("0"), server_default=text("0")
     )
+    # ===== T07 主数据扩展（均可空；不改变既有非空与校验口径）=====
+    # 参考进价（分）；与建议零售价一样 BIGINT 存分，业务层用 Decimal
+    purchase_price_fen: Mapped[int | None] = mapped_column(nullable=True)
+    series_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    category_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 规格原文，如 "500ml/瓶×24瓶"；case_spec/capacity_ml 由其派生，原文保留
+    spec_text: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    selling_points: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    shelf_life_text: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    target_channel: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    @property
+    def bottles_per_case(self) -> Decimal:
+        """每箱瓶/罐数：金额换算系数（主数据价格按“元/瓶”，业务单据数量按“箱”）。
+
+        箱规未维护（<=0）时按 1 计：宁可金额等同按箱报价，也不能乘出 0。
+        """
+        if self.case_spec and self.case_spec > 0:
+            return self.case_spec
+        return Decimal("1")

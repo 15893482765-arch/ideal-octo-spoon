@@ -150,12 +150,15 @@ def _make_contract(
     from datetime import date
 
     c = Contract(
-        code=f"T06-C-{uuid4().hex[:6]}",
+        contract_no=f"T06-C-{uuid4().hex[:6]}",
         merchant_id=merchant.id,
-        start_date=date(2026, 1, 1),
-        end_date=date(2026, 12, 31),
+        title="T06 种子合同",
+        party_name="T06 甲方",
+        effective_from=date(2026, 1, 1),
+        expire_at=date(2026, 12, 31),
         status="DRAFT",
         display_threshold_pct=50,
+        commission_rule_version="v1",
         dataset_type=dataset_type,
         dataset_id=uuid4(),
     )

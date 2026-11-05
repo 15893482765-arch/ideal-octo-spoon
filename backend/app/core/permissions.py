@@ -31,6 +31,7 @@ MODULE_REPLENISHMENT = "replenishment"
 MODULE_SALES_CONFIRM = "sales.confirm"
 MODULE_SCHEDULE = "schedule"
 MODULE_ACTIVITY = "activity"
+MODULE_SUPERVISION = "supervision"  # 督导跟访计划/现场记录/问题（PRD §4.8）
 MODULE_PROCUREMENT = "procurement"
 MODULE_FINANCE = "finance"
 MODULE_PERFORMANCE = "performance"
@@ -39,7 +40,12 @@ MODULE_PAYROLL_DISBURSE = "payroll.disburse"  # 标记"已发放"
 MODULE_AUDIT = "audit"
 MODULE_APPROVAL = "approval"  # 审批节点能力（T05 §5.3.1 approval.decide）
 MODULE_SETTINGS = "settings"
+MODULE_REGION_MANAGE = "region.manage"  # T02 片区创建/维护（片区经理可用）
 MODULE_SUPPLIER_CONFIRM = "supplier.confirm_supply"  # 厂商确认供货
+# T21 / PRD §5.3：经营报表与异步导出（report.export_request），仅经理/财务/管理员
+MODULE_REPORT = "report.export_request"
+# T27 / PRD §4.11：风险处置（确认/关闭/留痕）。业务员、厂商不可处置，只可查看本人相关项
+MODULE_RISK_HANDLE = "risk.handle"
 
 # 敏感字段（厂商不读）— 这些是字段名维度，跨多个实体
 SENSITIVE_FIELDS_SUPPLIER = frozenset(
@@ -113,9 +119,13 @@ _PROFILE_REGIONAL_MANAGER = RoleProfile(
             MODULE_SALES_CONFIRM,
             MODULE_SCHEDULE,
             MODULE_ACTIVITY,
+            MODULE_SUPERVISION,
             MODULE_PROCUREMENT,
             MODULE_PERFORMANCE,
             MODULE_APPROVAL,
+            MODULE_REPORT,
+            MODULE_RISK_HANDLE,
+            MODULE_REGION_MANAGE,
         }
     ),
     row_scope="region",
@@ -135,7 +145,9 @@ _PROFILE_SUPERVISOR = RoleProfile(
             MODULE_REPLENISHMENT,
             MODULE_SCHEDULE,
             MODULE_ACTIVITY,
+            MODULE_SUPERVISION,
             MODULE_APPROVAL,
+            MODULE_RISK_HANDLE,
         }
     ),
     row_scope="region",
@@ -155,6 +167,10 @@ _PROFILE_FINANCE = RoleProfile(
             MODULE_PAYROLL_DISBURSE,
             MODULE_REPLENISHMENT,
             MODULE_APPROVAL,
+            # R37：撤柜验收后由财务处理“退押金评估/退款”，需读冰柜与押金流水
+            MODULE_FREEZER,
+            MODULE_REPORT,
+            MODULE_RISK_HANDLE,
         }
     ),
     row_scope="global",
@@ -182,6 +198,9 @@ _PROFILE_SYSTEM_ADMIN = RoleProfile(
             MODULE_FINANCE,
             MODULE_PERFORMANCE,
             MODULE_APPROVAL,
+            MODULE_REGION_MANAGE,
+            MODULE_REPORT,
+            MODULE_RISK_HANDLE,
         }
     ),
     row_scope="global",

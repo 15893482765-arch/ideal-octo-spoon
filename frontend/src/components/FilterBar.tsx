@@ -1,4 +1,8 @@
-/** 通用筛选条（占位实现：仅提供可访问的表单布局，业务卡接入时挂接受控状态）。 */
+/** 通用筛选条（占位实现：仅提供可访问的表单布局，业务卡接入时挂接受控状态）。
+ *
+ * UI 迭代：改白卡容器、按钮统一为圆角胶囊（主按钮紫、次按钮描边），
+ * 表单 onSubmit / onReset / onApply 回调完全未动。
+ */
 import type { ReactNode } from "react";
 
 import { cn } from "../lib/utils";
@@ -18,24 +22,14 @@ export function FilterBar({ children, onReset, onApply, className }: FilterBarPr
         e.preventDefault();
         onApply?.();
       }}
-      className={cn(
-        "flex flex-wrap items-end gap-3 rounded-md border border-slate-200 bg-white p-3",
-        className,
-      )}
+      className={cn("qs-card flex flex-wrap items-end gap-3 p-4", className)}
     >
       <div className="flex flex-1 flex-wrap items-end gap-3">{children}</div>
       <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onReset}
-          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-        >
+        <button type="button" onClick={onReset} className="qs-btn qs-btn-ghost">
           重置
         </button>
-        <button
-          type="submit"
-          className="rounded-md bg-[var(--color-brand)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
-        >
+        <button type="submit" className="qs-btn qs-btn-primary">
           应用
         </button>
       </div>

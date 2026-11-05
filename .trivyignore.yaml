@@ -1,0 +1,23 @@
+# Trivy 例外清单（T29 安全基线）
+#
+# 规则：critical/high 默认一律阻断（CI --exit-code 1）。任何例外必须同时满足：
+#   1) 写明漏洞/规则 ID 与原因；
+#   2) 到期日（expire，不得超过 30 天，到期自动失效）；
+#   3) 负责人 + 书面审批（工单链接）；
+#   4) 有补偿控制（缓解措施）。
+#
+# 当前扫描结果 critical/high = 0，因此例外清单为空。
+# 新增例外示例（解除注释并填全字段方可生效）：
+#
+# vuls:
+#   - id: CVE-2099-0001
+#     until: 2026-11-15
+#     statement: "上游无修复版本，网络隔离 + 非 root + 只读 FS 缓解"
+#     owner: security@example.com
+#     ticket: "https://tickets.example.com/SEC-123"
+# misconfigurations:
+#   - id: AVD-DS-0002
+#     until: 2026-11-15
+#     statement: "本地开发 compose 不暴露公网，仅 127.0.0.1 绑定"
+#     owner: platform@example.com
+#     ticket: "https://tickets.example.com/SEC-124"

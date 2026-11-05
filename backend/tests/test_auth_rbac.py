@@ -153,6 +153,199 @@ def test_q011_first_time_change_password(
     assert resp.status_code == 200
 
 
+# ============== 厂商账号建号 + 授权范围（PRD §2.4） ==============
+
+
+def test_admin_creates_supplier_account_with_scope(
+    isolated_client: TestClient,
+    isolated_session,
+    bootstrap_admin: dict[str, str],
+    all_roles: dict[str, UUID],
+) -> None:
+    """建厂商账号时携带 supplier_id + brand_ids + region_ids：
+
+    - 写入 SupplierAuthorization（厂商可见范围由此派生）；
+    - 账号列表回显供应商 / 品牌 / 片区；
+    - 供应商下拉只返回在职（active）供应商。
+
+    全部参照数据建在隔离会话里，随用例回滚，避免污染其他用例的
+    「库内唯一品牌」类断言。
+    """
+    from app.models import Brand, Region, Supplier
+    from app.models.core import Organization
+
+    suffix = uuid4().hex[:8]
+    org = Organization(code=f"T03-ORG-{suffix}", name="T03 组织")
+    isolated_session.add(org)
+    isolated_session.flush()
+    brand = Brand(code=f"T03B{suffix.upper()}", name=f"T03 品牌 {suffix}")
+    region = Region(
+        code=f"T03R{suffix.upper()}", name=f"T03 片区 {suffix}", org_id=org.id
+    )
+    supplier = Supplier(code=f"T03S{suffix.upper()}", name=f"T03 供应商 {suffix}")
+    isolated_session.add_all([brand, region, supplier])
+    isolated_session.flush()
+
+    admin_access = isolated_client.post(
+        "/api/auth/login",
+        json={"username": bootstrap_admin["username"], "password": bootstrap_admin["password"]},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {admin_access}"}
+
+    options = isolated_client.get("/api/admin/users/suppliers", headers=headers).json()
+    assert str(supplier.id) in {o["id"] for o in options}
+
+    username = f"t03_supplier_{suffix}"
+    resp = isolated_client.post(
+        "/api/admin/users",
+        headers=headers,
+        json={
+            "username": username,
+            "display_name": "T03 厂商账号",
+            "role_id": str(all_roles[RoleCode.SUPPLIER.value]),
+            "supplier_id": str(supplier.id),
+            "brand_ids": [str(brand.id)],
+            "region_ids": [str(region.id)],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    created = resp.json()
+    assert created["role_code"] == "SUPPLIER"
+    assert created["one_time_credential"]
+    assert "password" not in created
+
+    rows = isolated_client.get("/api/admin/users", headers=headers).json()
+    row = next(u for u in rows if u["username"] == username)
+    assert row["supplier_ids"] == [str(supplier.id)]
+    assert row["brand_codes"] == [brand.code]
+    assert row["region_codes"] == [region.code]
+
+    # 厂商账号缺授权范围 → 拒绝建号（否则建出来看不到任何采购单）
+    missing_scope = isolated_client.post(
+        "/api/admin/users",
+        headers=headers,
+        json={
+            "username": f"{username}_noscope",
+            "display_name": "T03 厂商账号-无授权",
+            "role_id": str(all_roles[RoleCode.SUPPLIER.value]),
+            "supplier_id": str(supplier.id),
+        },
+    )
+    assert missing_scope.status_code in {400, 422}, missing_scope.text
+    assert missing_scope.json()["code"] == "SUPPLIER_SCOPE_REQUIRED"
+
+
+def test_list_users_returns_internal_scope(
+    isolated_client: TestClient,
+    isolated_session,
+    bootstrap_admin: dict[str, str],
+    all_roles: dict[str, UUID],
+) -> None:
+    """内部账号的行级授权（品牌/片区）必须在列表接口回显。
+
+    回归点：授权查询用 `select(实体, Brand.code, Region.code)`，取到的是字符串列；
+    曾误写成 `brand.code`，导致只要库里有内部授权就直接 500（整页"服务器不可用"）。
+    """
+    from app.models import Brand, Region
+    from app.models.core import Organization
+
+    suffix = uuid4().hex[:8]
+    org = Organization(code=f"T03-ORG-{suffix}", name="T03 组织")
+    isolated_session.add(org)
+    isolated_session.flush()
+    brand = Brand(code=f"T03B{suffix.upper()}", name=f"T03 品牌 {suffix}")
+    region = Region(code=f"T03R{suffix.upper()}", name=f"T03 片区 {suffix}", org_id=org.id)
+    isolated_session.add_all([brand, region])
+    isolated_session.flush()
+
+    admin_access = isolated_client.post(
+        "/api/auth/login",
+        json={"username": bootstrap_admin["username"], "password": bootstrap_admin["password"]},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {admin_access}"}
+
+    # 内部账号：带品牌 + 片区建号（走 assign_region_brand_auth）
+    username = f"t03_internal_{suffix}"
+    created = isolated_client.post(
+        "/api/admin/users",
+        headers=headers,
+        json={
+            "username": username,
+            "display_name": "T03 内部账号",
+            "role_id": str(all_roles[RoleCode.SALES_REP.value]),
+            "brand_ids": [str(brand.id)],
+            "region_ids": [str(region.id)],
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    resp = isolated_client.get("/api/admin/users", headers=headers)
+    assert resp.status_code == 200, resp.text
+    row = next(u for u in resp.json() if u["username"] == username)
+    assert row["brand_codes"] == [brand.code]
+    assert row["region_codes"] == [region.code]
+    assert row["supplier_ids"] == []
+
+
+def test_new_account_first_login_requires_activation(
+    isolated_client: TestClient,
+    bootstrap_admin: dict[str, str],
+    all_roles: dict[str, UUID],
+) -> None:
+    """新账号首次登录闭环：建号 → 凭据激活 → 用自设密码登录。
+
+    PENDING_ACTIVATION 的账号用"账号+密码"登录会被拒绝（不存在初始密码），
+    必须先消费管理员下发的一次性 Activation 凭据；凭据只能消费一次。
+    """
+    admin_access = isolated_client.post(
+        "/api/auth/login",
+        json={"username": bootstrap_admin["username"], "password": bootstrap_admin["password"]},
+    ).json()["access_token"]
+    headers = {"Authorization": f"Bearer {admin_access}"}
+
+    username = f"t03_first_{uuid4().hex[:8]}"
+    created = isolated_client.post(
+        "/api/admin/users",
+        headers=headers,
+        json={
+            "username": username,
+            "display_name": "首次登录账号",
+            "role_id": str(all_roles[RoleCode.SALES_REP.value]),
+        },
+    )
+    assert created.status_code == 201, created.text
+    credential = created.json()["one_time_credential"]
+    assert credential
+
+    # 1) 未激活直接登录 → 拒绝并明确告知"尚未激活"
+    pending = isolated_client.post(
+        "/api/auth/login", json={"username": username, "password": "Whatever-12345"}
+    )
+    assert pending.status_code in {400, 401, 403}, pending.text
+    assert pending.json()["code"] == "ACCOUNT_PENDING_ACTIVATION"
+
+    # 2) 用一次性凭据激活并自设密码
+    activated = isolated_client.post(
+        "/api/auth/activate",
+        json={"activation_token": credential, "new_password": "First-Login-2026"},
+    )
+    assert activated.status_code == 204, activated.text
+
+    # 3) 激活后即可登录，且不再要求改密
+    login = isolated_client.post(
+        "/api/auth/login", json={"username": username, "password": "First-Login-2026"}
+    )
+    assert login.status_code == 200, login.text
+    assert login.json()["must_change_password"] is False
+
+    # 4) 凭据一次性：重复消费失败
+    reused = isolated_client.post(
+        "/api/auth/activate",
+        json={"activation_token": credential, "new_password": "Another-Pass-2026"},
+    )
+    assert reused.status_code >= 400, reused.text
+
+
 # ============== Q012 角色 × 模块矩阵 ==============
 
 

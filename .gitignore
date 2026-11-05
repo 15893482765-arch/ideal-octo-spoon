@@ -27,3 +27,12 @@ test-results/
 .DS_Store
 Thumbs.db
 ~$*
+
+# 环境变量
+.env
+
+# IDE配置
+.idea/
+
+# 系统文件
+nul

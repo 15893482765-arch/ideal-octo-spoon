@@ -1,0 +1,150 @@
+{
+  "scenario": "Q169",
+  "spec": {
+    "n_merchants": 20000,
+    "n_contracts": 20000,
+    "n_tasks": 1000,
+    "n_risks": 1000,
+    "n_submit_tasks": 60,
+    "warmup_rounds": 10,
+    "sample_rounds": 50,
+    "repeat_runs": 3,
+    "concurrency_model": "single-session sequential service-layer calls"
+  },
+  "thresholds_ms": {
+    "workbench_home": 1000.0,
+    "merchant_list": 800.0,
+    "visit_submit": 3000.0
+  },
+  "machine": {
+    "python": "3.12.14",
+    "platform": "Windows-11-10.0.22631-SP0",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "cpu_count": 16,
+    "memory_bytes": null,
+    "measured_at_utc": "2026-10-15T08:15:38.846220+00:00"
+  },
+  "postgres_version": "16.4 (Debian 16.4-1.pgdg110+2)",
+  "runs": {
+    "workbench_home": [
+      {
+        "p50_ms": 521.44,
+        "p95_ms": 713.43,
+        "p99_ms": 826.05,
+        "max_ms": 843.28,
+        "samples": 50,
+        "errors": 0,
+        "error_rate": 0.0
+      },
+      {
+        "p50_ms": 516.69,
+        "p95_ms": 615.17,
+        "p99_ms": 748.62,
+        "max_ms": 840.28,
+        "samples": 50,
+        "errors": 0,
+        "error_rate": 0.0
+      },
+      {
+        "p50_ms": 511.58,
+        "p95_ms": 752.0,
+        "p99_ms": 864.38,
+        "max_ms": 909.32,
+        "samples": 50,
+        "errors": 0,
+        "error_rate": 0.0
+      }
+    ],
+    "merchant_list": [
+      {
+        "p50_ms": 16.27,
+        "p95_ms": 17.49,
+        "p99_ms": 19.19,
+        "max_ms": 20.71,
+        "samples": 50,
+        "errors": 0,
+        "error_rate": 0.0
+      },
+      {
+        "p50_ms": 16.21,
+        "p95_ms": 17.71,
+        "p99_ms": 38.67,
+        "max_ms": 58.16,
+        "samples": 50,
+        "errors": 0,
+        "error_rate": 0.0
+      },
+      {
+        "p50_ms": 15.46,
+        "p95_ms": 16.87,
+        "p99_ms": 17.15,
+        "max_ms": 17.2,
+        "samples": 50,
+        "errors": 0,
+        "error_rate": 0.0
+      }
+    ],
+    "visit_submit": [
+      {
+        "p50_ms": 10.82,
+        "p95_ms": 11.54,
+        "p99_ms": 11.81,
+        "max_ms": 11.9,
+        "samples": 50,
+        "errors": 0,
+        "error_rate": 0.0
+      },
+      {
+        "p50_ms": 10.27,
+        "p95_ms": 12.1,
+        "p99_ms": 12.83,
+        "max_ms": 13.17,
+        "samples": 50,
+        "errors": 0,
+        "error_rate": 0.0
+      },
+      {
+        "p50_ms": 10.41,
+        "p95_ms": 11.12,
+        "p99_ms": 11.36,
+        "max_ms": 11.4,
+        "samples": 50,
+        "errors": 0,
+        "error_rate": 0.0
+      }
+    ]
+  },
+  "explain": {
+    "merchant_list_sql": {
+      "node_type": "Limit",
+      "total_runtime_ms": 5.276,
+      "actual_rows": 20,
+      "planning_time_ms": 0.047,
+      "execution_time_ms": 5.288,
+      "seq_scan": true,
+      "plan_top": "Sort"
+    }
+  },
+  "verdict": {
+    "workbench_home": {
+      "worst_p95_ms": 752.0,
+      "threshold_ms": 1000.0,
+      "worst_error_rate": 0.0,
+      "pass": true
+    },
+    "merchant_list": {
+      "worst_p95_ms": 17.71,
+      "threshold_ms": 800.0,
+      "worst_error_rate": 0.0,
+      "pass": true
+    },
+    "visit_submit": {
+      "worst_p95_ms": 12.1,
+      "threshold_ms": 3000.0,
+      "worst_error_rate": 0.0,
+      "pass": true
+    }
+  },
+  "overall_pass": true
+}

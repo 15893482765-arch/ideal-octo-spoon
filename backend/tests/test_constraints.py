@@ -140,28 +140,35 @@ def test_merchant_code_unique_within_dataset(session) -> None:
 
 
 def test_contract_code_unique_within_dataset(session) -> None:
+    # T09：合同编号 contract_no 全局唯一（PRD §4.4）
     org, region, brand = _seed_basics(session)
     m = Merchant(code="M-9", name="甲", region_id=region.id, brand_id=brand.id)
     session.add(m)
     session.flush()
     dsid = uuid4()
     c1 = Contract(
-        code="C-1",
+        contract_no="C-1",
         merchant_id=m.id,
-        start_date=date(2026, 1, 1),
-        end_date=date(2026, 12, 31),
+        title="合同一",
+        party_name="甲方公司",
+        effective_from=date(2026, 1, 1),
+        expire_at=date(2026, 12, 31),
         commission_rate=Decimal("0.0500"),
+        commission_rule_version="v1",
         dataset_type="PRODUCTION",
         dataset_id=dsid,
     )
     c2 = Contract(
-        code="C-1",
+        contract_no="C-1",
         merchant_id=m.id,
-        start_date=date(2026, 1, 1),
-        end_date=date(2026, 12, 31),
+        title="合同二",
+        party_name="乙方公司",
+        effective_from=date(2026, 1, 1),
+        expire_at=date(2026, 12, 31),
         commission_rate=Decimal("0.0500"),
+        commission_rule_version="v1",
         dataset_type="PRODUCTION",
-        dataset_id=dsid,
+        dataset_id=uuid4(),
     )
     session.add_all([c1, c2])
     with pytest.raises(IntegrityError):
@@ -298,11 +305,14 @@ def test_money_amount_rejects_negative(session) -> None:
     session.add(m)
     session.flush()
     c = Contract(
-        code="C-AMT",
+        contract_no="C-AMT",
         merchant_id=m.id,
-        start_date=date(2026, 1, 1),
-        end_date=date(2026, 12, 31),
-        monthly_rent_fen=-1,  # 触发 CHECK 约束
+        title="金额负向测试",
+        party_name="甲方",
+        effective_from=date(2026, 1, 1),
+        expire_at=date(2026, 12, 31),
+        commission_rule_version="v1",
+        display_subsidy_amount=-1,  # 触发 CHECK >= 0
         commission_rate=Decimal("0.05"),
     )
     session.add(c)
@@ -338,6 +348,7 @@ def test_money_int_only_at_db(session) -> None:
 
     insp = inspect(session.get_bind())
     cols = {c["name"]: c for c in insp.get_columns("contracts")}
-    assert "monthly_rent_fen" in cols
-    rent_col_type = str(cols["monthly_rent_fen"]["type"]).lower()
-    assert "int" in rent_col_type or "bigint" in rent_col_type
+    # T09：陈列补贴金额 BIGINT 存分（红线）
+    assert "display_subsidy_amount" in cols
+    amount_col_type = str(cols["display_subsidy_amount"]["type"]).lower()
+    assert "bigint" in amount_col_type

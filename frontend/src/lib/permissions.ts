@@ -26,6 +26,12 @@ export const MODULE = {
   APPROVAL: "approval",
   SETTINGS: "settings",
   SUPPLIER_CONFIRM: "supplier.confirm_supply",
+  // T27 / PRD §4.11：风险处置（确认/关闭/留痕）；业务员、厂商不可处置
+  RISK_HANDLE: "risk.handle",
+  // T16 督导跟访与整改（独立于巡访 MODULE.VISIT）；系统管理员无此能力（PRD §4.8）
+  SUPERVISION: "supervision",
+  // T02 片区管理（创建片区）；SYSTEM_ADMIN 与 REGIONAL_MANAGER 均可用
+  REGION_MANAGE: "region.manage",
 } as const;
 
 export type ModuleCode = (typeof MODULE)[keyof typeof MODULE];
@@ -57,6 +63,8 @@ export const ROLE_ABILITIES: Record<string, ReadonlySet<ModuleCode>> = {
     MODULE.PROCUREMENT,
     MODULE.PERFORMANCE,
     MODULE.APPROVAL,
+    MODULE.RISK_HANDLE,
+    MODULE.REGION_MANAGE,
   ]),
   SUPERVISOR: new Set([
     MODULE.AUTH_LOGIN,
@@ -69,6 +77,7 @@ export const ROLE_ABILITIES: Record<string, ReadonlySet<ModuleCode>> = {
     MODULE.SCHEDULE,
     MODULE.ACTIVITY,
     MODULE.APPROVAL,
+    MODULE.RISK_HANDLE,
   ]),
   FINANCE: new Set([
     MODULE.AUTH_LOGIN,
@@ -80,6 +89,9 @@ export const ROLE_ABILITIES: Record<string, ReadonlySet<ModuleCode>> = {
     MODULE.PAYROLL_DISBURSE,
     MODULE.REPLENISHMENT,
     MODULE.APPROVAL,
+    // 与后端 _PROFILE_FINANCE 对齐：冰柜购置入库 + R37 退押金需读冰柜与押金流水
+    MODULE.FREEZER,
+    MODULE.RISK_HANDLE,
   ]),
   SYSTEM_ADMIN: new Set([
     MODULE.AUTH_LOGIN,
@@ -99,6 +111,8 @@ export const ROLE_ABILITIES: Record<string, ReadonlySet<ModuleCode>> = {
     MODULE.FINANCE,
     MODULE.PERFORMANCE,
     MODULE.APPROVAL,
+    MODULE.RISK_HANDLE,
+    MODULE.REGION_MANAGE,
   ]),
   SUPPLIER: new Set([
     MODULE.AUTH_LOGIN,

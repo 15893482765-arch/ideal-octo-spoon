@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -26,7 +27,7 @@ from app.core.permissions import (
     permission_service,
 )
 from app.core.tokens import issue_token, token_revocation
-from app.models import AuthEvent, Role, User
+from app.models import AuthEvent, Brand, Region, Role, Supplier, SupplierAuthorization, User, UserRegionBrandAuth
 from app.models.enums import (
     AuthEventType,
     RoleCode,
@@ -237,6 +238,92 @@ class UserAdminService:
             code="NOT_IMPLEMENTED_IN_T03",
             message="payroll.disburse 能力授予归属 T04 实施；T03 阶段系统管理员默认无此能力",
         )
+
+    # ===== 授权 =====
+
+    def assign_supplier_auth(
+        self,
+        *,
+        user_id: UUID,
+        supplier_id: UUID,
+        brand_ids: list[UUID],
+        region_ids: list[UUID],
+    ) -> None:
+        """为厂商账号写入 SupplierAuthorization（PRD §2.4）。
+
+        每笔 (supplier_id, user_id, brand_id, region_id) 组合确保唯一；
+        已存在则跳过，不抛异常。
+        """
+        supplier = self.session.get(Supplier, supplier_id)
+        if supplier is None:
+            raise DomainError(code="SUPPLIER_NOT_FOUND", message="供应商不存在")
+        for bid in brand_ids:
+            for rid in region_ids:
+                existing = self.session.execute(
+                    select(SupplierAuthorization).where(
+                        SupplierAuthorization.supplier_id == supplier_id,
+                        SupplierAuthorization.user_id == user_id,
+                        SupplierAuthorization.brand_id == bid,
+                        SupplierAuthorization.region_id == rid,
+                    )
+                ).scalar_one_or_none()
+                if existing is None:
+                    self.session.add(
+                        SupplierAuthorization(
+                            supplier_id=supplier_id,
+                            user_id=user_id,
+                            brand_id=bid,
+                            region_id=rid,
+                            dataset_type=supplier.dataset_type,
+                            dataset_id=supplier.dataset_id,
+                        )
+                    )
+        self.session.flush()
+
+    def assign_region_brand_auth(
+        self,
+        *,
+        user_id: UUID,
+        brand_ids: list[UUID],
+        region_ids: list[UUID],
+    ) -> None:
+        """为内部用户写入 UserRegionBrandAuth（PRD §2.3）。
+
+        未选的一侧按「全部启用项」展开：区域经理只选片区即可获得该片区全品牌权限；
+        两侧都为空时不写任何行（账号仍然存在，但看不到业务数据）。
+        """
+        target = self.session.get(User, user_id)
+        if target is None:
+            raise DomainError(code="USER_NOT_FOUND", message="账号不存在")
+
+        brands = list(brand_ids) or [
+            b.id
+            for b in self.session.execute(
+                select(Brand).where(Brand.is_active.is_(True)).order_by(Brand.code)
+            ).scalars()
+        ]
+        regions = list(region_ids) or [
+            r.id
+            for r in self.session.execute(
+                select(Region).where(Region.is_active.is_(True)).order_by(Region.code)
+            ).scalars()
+        ]
+
+        for bid in brands:
+            for rid in regions:
+                existing = self.session.execute(
+                    select(UserRegionBrandAuth).where(
+                        UserRegionBrandAuth.user_id == user_id,
+                        UserRegionBrandAuth.brand_id == bid,
+                        UserRegionBrandAuth.region_id == rid,
+                    )
+                ).scalar_one_or_none()
+                if existing is None:
+                    # UserRegionBrandAuth 不带 dataset 列：数据范围由 user_id 关联的账号决定
+                    self.session.add(
+                        UserRegionBrandAuth(user_id=user_id, brand_id=bid, region_id=rid)
+                    )
+        self.session.flush()
 
     # ===== 内部辅助 =====
 

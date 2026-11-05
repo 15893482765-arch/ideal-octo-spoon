@@ -17,9 +17,10 @@ EXPECTED_TABLES = {
     "merchants",
     "merchant_contacts",
     "merchant_grade_frequencies",
+    "merchant_assignments",
+    "merchant_grade_changes",
     "contracts",
-    "contract_changes",
-    "contract_approvals",
+    "contract_versions",
     "freezer_assets",
     "freezer_movements",
     "visit_tasks",
@@ -34,6 +35,7 @@ EXPECTED_TABLES = {
     "procurement_orders",
     "procurement_deliveries",
     "finance_transactions",
+    "salary_configs",
     "performance_records",
     "payroll_records",
     "approval_requests",
@@ -43,6 +45,7 @@ EXPECTED_TABLES = {
     "import_batches",
     "risk_items",
     "idempotency_keys",
+    "knowledge_chunks",
 }
 
 
@@ -62,8 +65,20 @@ def test_alembic_version_at_head(applied_engine) -> None:
 
 def test_downgrade_then_upgrade(applied_engine) -> None:
     """Q006：先 downgrade base 再 upgrade head，验证迁移可重复执行。"""
+    import os
+
     from alembic import command
     from alembic.config import Config
+
+    # env.py 会用 settings.database_url_sync（读 DATABASE_URL/.env）覆盖
+    # set_main_option 传入的 URL，必须同步把环境变量指到测试库，否则
+    # downgrade/upgrade 会误作用于 dev 库。
+    os.environ["DATABASE_URL"] = TEST_DATABASE_URL_STR().replace(
+        "postgresql+psycopg2://", "postgresql+asyncpg://"
+    )
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
 
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL_STR())

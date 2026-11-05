@@ -37,6 +37,13 @@ def applied_engine() -> Iterator[Engine]:
     from alembic import command
     from alembic.config import Config
 
+    # env.py 用 settings.database_url_sync（读 DATABASE_URL/.env）覆盖
+    # set_main_option，必须把环境变量也指到测试库，否则迁移会误作用于 dev 库。
+    os.environ["DATABASE_URL"] = TEST_DATABASE_URL_ASYNC
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", TEST_DATABASE_URL)
     command.upgrade(cfg, "head")
@@ -45,7 +52,9 @@ def applied_engine() -> Iterator[Engine]:
 
 
 @pytest.fixture
-def engine(applied_engine: Engine) -> Iterator[Engine]:
+def engine(applied_engine: Engine, test_env: None) -> Iterator[Engine]:
+    # 依赖 test_env：确保只读 fixture 也跑在测试配置下（例如 AI_CHAT_PROVIDER=mock，
+    # 否则本地 .env 配了真实模型时，DB 测试会意外发网络请求）。
     yield applied_engine
 
 
@@ -80,6 +89,8 @@ TEST_ENV = {
     "S3_ACCESS_KEY": "test-access-key",
     "S3_SECRET_KEY": "test-secret-value",
     "DEMO_DATA_ENABLED": "false",
+    # 测试绝不发真实模型请求：显式钉住 mock（本地 .env 可能配了 moonshot）
+    "AI_CHAT_PROVIDER": "mock",
 }
 
 _OPTIONAL_ENV_KEYS = ["APP_NAME", "APP_VERSION", "S3_BUCKET", "LOG_LEVEL"]
@@ -114,10 +125,62 @@ def test_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @pytest.fixture
 def client(test_env: None) -> Iterator[TestClient]:
+    from app.core.rate_limiter import rate_limiter
     from app.main import create_app
 
+    # T29：每个 HTTP 测试用例前清空限流计数，避免跨用例的窗口污染
+    rate_limiter.reset()
     with TestClient(create_app()) as c:
         yield c
+
+
+@pytest.fixture
+def isolated_session(applied_engine: Engine) -> Iterator[Session]:
+    """外层事务 + SAVEPOINT 的 session：`commit()` 只释放保存点，用例结束整体回滚。
+
+    与 `session` 的差别仅在 `join_transaction_mode="create_savepoint"`：它让被测代码里
+    的 `commit()` 不真正落库，适合"服务层确实会 commit、但测试不该留痕"的联调。
+    """
+    connection = applied_engine.connect()
+    trans = connection.begin()
+    SessionLocal = sessionmaker(
+        bind=connection,
+        expire_on_commit=False,
+        future=True,
+        join_transaction_mode="create_savepoint",
+    )
+    s = SessionLocal()
+    try:
+        yield s
+    finally:
+        s.close()
+        trans.rollback()
+        connection.close()
+
+
+@pytest.fixture
+def isolated_client(
+    test_env: None, isolated_session: Session
+) -> Iterator[TestClient]:
+    """把路由的 DB 依赖替换成 `isolated_session`，使 HTTP 层的 commit 也不留痕。
+
+    普通 `client` 会把服务端 `commit()` 真实写进测试库，污染依赖全表计数的用例；
+    需要"能 commit 但不落库"的接口联调（主数据导入、审计查询）请用本 fixture。
+    """
+    from app.core.deps import db_session
+    from app.core.rate_limiter import rate_limiter
+    from app.main import create_app
+
+    app = create_app()
+
+    def _override() -> Iterator[Session]:
+        yield isolated_session
+
+    app.dependency_overrides[db_session] = _override
+    rate_limiter.reset()
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
 
 
 # ===== T03 测试夹具：角色矩阵、admin 引导 =====

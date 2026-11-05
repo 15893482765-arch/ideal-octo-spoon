@@ -20,6 +20,18 @@ dependencies = [
     "pyjwt>=2.8",
     "argon2-cffi>=23.1",
     "httpx>=0.27",
+    "openpyxl>=3.1",
+    "pyyaml>=6.0",
+    # 与服务端 qdrant/qdrant:v1.12.4 主次版本对齐（客户端警告 minor 差 >1）
+    "qdrant-client>=1.12,<1.13",
+]
+
+[project.optional-dependencies]
+# RAG 知识库 embedding：本地 bge-small-zh（torch CPU 版约 2GB）。
+# 放可选依赖而非主依赖：生产镜像（deploy_smoke/Dockerfile）默认不装，
+# 避免镜像体积暴涨；开发/摄入环境用 `pip install -e .[rag]` 启用（任务卡 2）。
+rag = [
+    "sentence-transformers>=2.7",
 ]
 
 [dependency-groups]
@@ -33,7 +45,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["app", "tests"]
+src = ["app", "mcp", "tests"]
 extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
@@ -47,7 +59,7 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["app", "mcp"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -66,3 +78,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "no_cache: 禁用 Redis 缓存的测试",
+    "performance: 固定规格性能基准（真实 PG16）",
+]

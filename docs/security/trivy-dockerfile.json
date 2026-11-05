@@ -1,0 +1,180 @@
+{
+  "SchemaVersion": 2,
+  "CreatedAt": "2026-10-15T07:43:01.611103385Z",
+  "ArtifactName": "/src/backend",
+  "ArtifactType": "filesystem",
+  "Metadata": {
+    "ImageConfig": {
+      "architecture": "",
+      "created": "0001-01-01T00:00:00Z",
+      "os": "",
+      "rootfs": {
+        "type": "",
+        "diff_ids": null
+      },
+      "config": {}
+    }
+  },
+  "Results": [
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/cloudformation/2010-05-15/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/cloudwatch/2010-08-01/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/dynamodb/2012-08-10/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/ec2/2014-10-01/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/ec2/2015-03-01/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/ec2/2015-04-15/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/ec2/2015-10-01/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/ec2/2016-04-01/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/ec2/2016-09-15/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/ec2/2016-11-15/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/glacier/2012-06-01/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/iam/2010-05-08/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/s3/2006-03-01/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/sns/2010-03-31/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": ".venv/Lib/site-packages/boto3/data/sqs/2012-11-05/resources-1.json",
+      "Class": "config",
+      "Type": "cloudformation",
+      "MisconfSummary": {
+        "Successes": 24,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    },
+    {
+      "Target": "Dockerfile",
+      "Class": "config",
+      "Type": "dockerfile",
+      "MisconfSummary": {
+        "Successes": 27,
+        "Failures": 0,
+        "Exceptions": 0
+      }
+    }
+  ]
+}

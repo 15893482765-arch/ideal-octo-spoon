@@ -1,0 +1,21 @@
+# 构建上下文最小化，避免密钥/测试/缓存进入镜像层
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+docs/
+*.sqlite3
+*.db
+.env
+.env.*
+!.env.example
+.git/
+.gitignore
+*.md
+coverage.xml
+htmlcov/
+node_modules/

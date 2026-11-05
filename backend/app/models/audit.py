@@ -97,7 +97,18 @@ class ImportBatch(Base, AuditMixin):
 
     id: Mapped[UUID] = pk_uuid()
     dataset_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    # T07：数据集标识（演示固定 DEMO-QINSHUANG-2026Q3 → UUIDv5）；批次内所有行一致
+    dataset_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
     source_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    # T07：文件 SHA-256；与 source_filename 共同保证同源文件只显示既有批次（幂等）
+    file_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=text("''")
+    )
+    # T07：四步流程阶段（UPLOADED/PREFLIGHT/CONFIRMED/EXECUTED）记录在 payload.stage
+    # 批次类别：MASTER（主数据）/ BUSINESS（补充演示业务夹具）/ EMPTY（T06 自检）
+    seed_kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="MASTER", server_default=text("'MASTER'")
+    )
     rows_total: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
     rows_imported: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
     rows_rejected: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
@@ -105,6 +116,11 @@ class ImportBatch(Base, AuditMixin):
         String(16), nullable=False, default="PENDING", server_default=text("'PENDING'")
     )
     error_log: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # T07：结构化预览/导入结果。**绝不**写入任何明文密码或激活凭据；
+    # 激活凭据仅在执行响应中一次性返回，不持久化（PRD §2.1 红线）。
+    payload_json: Mapped[dict[str, Any]] = mapped_column(
+        nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     imported_by_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )

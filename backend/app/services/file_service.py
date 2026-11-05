@@ -198,17 +198,22 @@ class FileService:
         expires_at: int,
         signature: str,
         owner_check: Any = None,
+        allowed_dataset_types: Any = None,
+        now_seconds: int | None = None,
     ) -> bytes:
-        """凭签名 URL 下载：签名 + 有效期 + 访问人身份 + 文件状态 四重校验。
+        """凭签名 URL 下载：签名 + 有效期 + 访问人身份 + 数据集隔离 + 文件状态 多重校验。
 
         - 签名绑定的 actor 必须与当前访问人一致（防止 URL 转借越权）；
         - owner_check：可选回调 `Callable(actor_id, file) -> bool`，
           由业务层注入行级规则（如"照片拍摄者或片区经理"）；返回 False 即拒绝；
+        - allowed_dataset_types：可选可迭代数据集白名单（如生产口只允许 PRODUCTION，
+          DEMO 数据不得进入正式下载/导出口径）；不传则不按数据集限制；
         - INFECTED 拒绝；内容取回后校验 SHA-256 一致性。
         """
         settings = get_settings()
+        current_ts = int(now_seconds if now_seconds is not None else time.time())
         # 先看过期（用户可读到的更具体原因），再验签名
-        if int(time.time()) > expires_at:
+        if current_ts > expires_at:
             raise FileAccessError(code="FILE_SIGNATURE_EXPIRED", message="下载链接已过期")
         expected = _sign(
             settings.secret_key.get_secret_value().encode(),
@@ -222,6 +227,12 @@ class FileService:
         obj = self.session.get(FileObject, file_id)
         if obj is None:
             raise FileAccessError(code="FILE_NOT_FOUND", message="文件不存在")
+        allowed = None if allowed_dataset_types is None else set(allowed_dataset_types)
+        if allowed is not None and obj.dataset_type not in allowed:
+            # 数据集隔离：演示数据不得经正式下载/导出路径流出
+            raise FileAccessError(
+                code="FILE_DATASET_FORBIDDEN", message="该文件不属于允许的数据范围"
+            )
         if obj.owner_user_id != current_actor_id and owner_check is None:
             raise FileAccessError(code="FILE_ACCESS_DENIED", message="无权访问该文件")
         if owner_check is not None and not owner_check(current_actor_id, obj):

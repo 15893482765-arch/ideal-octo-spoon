@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.core.errors import DomainError
 
@@ -35,6 +35,10 @@ class StorageBackend(Protocol):
     def put(self, object_key: str, data: bytes) -> None: ...
     def get(self, object_key: str) -> bytes: ...
     def delete(self, object_key: str) -> None: ...
+
+    def presign_get(self, object_key: str, expires_in: int) -> str:
+        """生成短期预签名下载 URL。本地后端无法预签名，抛 NotImplementedError。"""
+        ...
 
 
 class LocalFSStorage:
@@ -74,6 +78,10 @@ class LocalFSStorage:
         if path.exists():
             path.unlink()
 
+    def presign_get(self, object_key: str, expires_in: int) -> str:
+        # 本地后端通过 FileService 的 HMAC 签名下载端点访问，不生成云厂商预签名。
+        raise NotImplementedError("local storage does not support presigned URLs")
+
 
 class S3Storage:
     """S3 兼容后端（MinIO/云 OSS）。
@@ -82,13 +90,17 @@ class S3Storage:
     T09（合同附件）/ T11（巡访照片）接入时以真实容器完成。
     """
 
-    def __init__(self) -> None:
-        import boto3  # 延迟导入：仅生产环境需要
-
+    def __init__(self, client: Any | None = None, *, bucket: str | None = None) -> None:
         from app.core.config import get_settings
 
         settings = get_settings()
-        self._bucket = settings.s3_bucket
+        self._bucket = bucket or settings.s3_bucket
+        if client is not None:
+            # 测试 / 注入式客户端
+            self._client = client
+            return
+        import boto3  # 延迟导入：仅生产环境需要
+
         self._client = boto3.client(
             "s3",
             endpoint_url=settings.s3_endpoint_url,
@@ -111,6 +123,35 @@ class S3Storage:
     def delete(self, object_key: str) -> None:
         self._check(object_key)
         self._client.delete_object(Bucket=self._bucket, Key=object_key)
+
+    def presign_get(self, object_key: str, expires_in: int) -> str:
+        """生成 S3 预签名 GET URL（短期、只读）。
+
+        过期后对象存储直接拒绝（与 FileService 的 HMAC 下载签名双重短期化）。
+        """
+        self._check(object_key)
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self._bucket, "Key": object_key},
+            ExpiresIn=expires_in,
+        )
+
+
+def object_key_for(
+    dataset_type: str, dataset_id: str, biz_type: str, file_uuid: str, filename: str
+) -> str:
+    """生成带**租户/数据集隔离前缀**的对象键（Q168 对象存储隔离）。
+
+    key 形如 `{dataset_type}/{dataset_id}/{biz_type}/{uuid}/{file}`，
+    使不同数据集（DEMO/PRODUCTION、不同企业）物理路径隔离；
+    下游可据此在 S3/MinIO 配置 bucket 前缀策略，DEMO 数据永不与生产混用。
+    """
+    import re
+
+    safe_ds_type = re.sub(r"[^A-Za-z0-9._-]", "", dataset_type).upper() or "PRODUCTION"
+    safe_biz = re.sub(r"[^A-Za-z0-9._-]", "", biz_type).lower() or "other"
+    safe_name = re.sub(r"[^A-Za-z0-9._\u4e00-\u9fff-]+", "_", filename)[:120] or "file"
+    return f"{safe_ds_type}/{dataset_id}/{safe_biz}/{file_uuid}/{safe_name}"
 
 
 def get_storage_backend() -> StorageBackend:

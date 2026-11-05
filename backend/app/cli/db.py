@@ -132,6 +132,37 @@ def cmd_seed_list(args: argparse.Namespace) -> int:
         return 0
 
 
+def cmd_demo_accounts(args: argparse.Namespace) -> int:
+    """把账号工作簿播种为可直接登录的演示账号（幂等；生产环境禁止）。"""
+    from pathlib import Path
+
+    from app.services import demo_account_seeder as seeder
+
+    settings = get_settings()
+    if settings.environment == "production":
+        print("[db:demo-accounts] 生产环境禁止执行", file=sys.stderr)
+        return 2
+    raw = args.file or settings.demo_account_workbook or seeder.DEFAULT_WORKBOOK
+    path = Path(raw)
+    if not path.is_absolute():
+        path = Path(__file__).resolve().parents[2] / path
+    with session_scope() as session:
+        logins = seeder.DemoAccountSeeder(session).seed(path=path, password=args.password)
+    print(
+        json.dumps(
+            {
+                "workbook": str(path),
+                "password": args.password or seeder.DEFAULT_LOGIN_PASSWORD,
+                "count": len(logins),
+                "logins": logins,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def cmd_demo_smoke(args: argparse.Namespace) -> int:
     """显式 demo 批次预检（CLI 给 Q030 单元测试外加端到端探针使用）。"""
     settings = get_settings()
@@ -154,6 +185,35 @@ def cmd_demo_smoke(args: argparse.Namespace) -> int:
         return 0
 
 
+def cmd_demo_business(args: argparse.Namespace) -> int:
+    """播种演示业务全链路数据（合同/冰柜/排班/巡访/补货/地推/督导/采购/绩效）。
+
+    幂等：各段以确定性编码为锚点，重复执行只补齐缺失段。
+    """
+    settings = get_settings()
+    if settings.environment == "production":
+        print("[db:demo-business] 生产环境禁止", file=sys.stderr)
+        return 2
+    from app.services.demo_business_seeder import DemoBusinessSeeder
+
+    with session_scope() as session:
+        results = DemoBusinessSeeder(session).seed()
+    print(json.dumps(results, ensure_ascii=False, indent=2))
+    return 0 if all(item["status"] == "OK" for item in results) else 1
+
+
+def cmd_repair_schedule(args: argparse.Namespace) -> int:
+    """修复排班与巡访任务负责人不一致（历史调拨只转任务不改排班）。"""
+    from app.services.schedule_service import ScheduleService
+
+    with session_scope() as session:
+        result = ScheduleService(session).reconcile_schedule_assignees(
+            apply=not args.dry_run
+        )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if not result["conflicts"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli.db")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -168,6 +228,22 @@ def main(argv: list[str] | None = None) -> int:
     p_list.add_argument("--limit", type=int, default=50)
     p_list.set_defaults(func=cmd_seed_list)
     sub.add_parser("demo-smoke", help="非生产 demo 预检").set_defaults(func=cmd_demo_smoke)
+    p_demo_accounts = sub.add_parser(
+        "demo-accounts", help="把账号工作簿播种为可直接登录的演示账号（非生产）"
+    )
+    p_demo_accounts.add_argument("--file", default=None, help="账号工作簿路径")
+    p_demo_accounts.add_argument("--password", default=None, help="统一初始密码（默认取源表列）")
+    p_demo_accounts.set_defaults(func=cmd_demo_accounts)
+    sub.add_parser(
+        "demo-business",
+        help="播种演示业务全链路数据（合同/冰柜/排班/巡访/补货/地推/督导/采购/绩效，非生产）",
+    ).set_defaults(func=cmd_demo_business)
+    p_repair = sub.add_parser(
+        "repair-schedule",
+        help="修复排班与巡访任务负责人不一致（含 --dry-run 只统计）",
+    )
+    p_repair.add_argument("--dry-run", action="store_true", help="只统计不写库")
+    p_repair.set_defaults(func=cmd_repair_schedule)
 
     args = parser.parse_args(argv)
     return args.func(args)

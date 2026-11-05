@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1.7
+# 沁爽分销后端生产镜像（精简部署版）—— 包含前端 dist，单容器托管页面+接口
+# 容器结构复刻仓库根：/app/backend/... 与 /app/frontend/dist，使 serve_frontend
+# 的 parents[2] 路径解析正确（app/main.py → parents[2]=/app → frontend/dist）。
+# worker 数从 4 降到 2（适配 2G 内存服务器）。
+FROM python:3.12-slim-bookworm AS builder
+
+# uv 固定版本（与本地 uv 0.12.17 一致，保证 lock 解析可复现）
+COPY --from=ghcr.io/astral-sh/uv:0.12.17 /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_NO_CONFIG=1 \
+    UV_PROJECT_ENVIRONMENT=/app/backend/.venv \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple \
+    UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
+WORKDIR /app/backend
+
+# 仅依赖层优先，利用构建缓存（构建上下文=仓库根）
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-install-project --no-dev
+
+COPY backend/app ./app
+COPY backend/alembic.ini ./alembic.ini
+COPY backend/alembic ./alembic
+COPY backend/mcp ./mcp
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+
+# ---- 运行阶段：精简，仅含 venv + 应用 + 前端产物 ----
+FROM python:3.12-slim-bookworm AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/backend/.venv/bin:$PATH" \
+    APP_ENV=production
+
+RUN groupadd --system app && useradd --system --gid app --home /app app \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder --chown=app:app /app /app
+
+# 前端产物：/app/frontend/dist（parents[2]=/app → frontend/dist 匹配）
+COPY --chown=app:app frontend/dist ./frontend/dist
+
+# 本地文件存储目录
+RUN mkdir -p /app/backend/.data/storage && chown -R app:app /app/backend/.data
+
+USER app
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8000/healthz || exit 1
+
+# 2G 内存服务器：2 worker（原 4 worker）；在 backend 目录下启动
+WORKDIR /app/backend
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips=*"]

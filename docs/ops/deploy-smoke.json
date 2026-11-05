@@ -1,0 +1,62 @@
+{
+  "schema": "qinshuang-deploy-smoke/v1",
+  "card": "T30",
+  "image": "qinshuang-backend:t30",
+  "fresh_database": "qinshuang_deploy",
+  "network": "qinshuang_default",
+  "generated_at": "2026-10-15T10:16:13.927428+00:00",
+  "ok": true,
+  "failed": [],
+  "checks": [
+    {
+      "id": "image_available",
+      "ok": true,
+      "detail": "qinshuang-backend:t30"
+    },
+    {
+      "id": "fresh_db_is_empty",
+      "ok": true,
+      "detail": "public 表数=0"
+    },
+    {
+      "id": "migration_applied",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "id": "container_non_root",
+      "ok": true,
+      "detail": "uid=999"
+    },
+    {
+      "id": "healthz_ready",
+      "ok": true,
+      "detail": "http://127.0.0.1:18080/healthz"
+    },
+    {
+      "id": "bootstrap_admin_login",
+      "ok": true,
+      "detail": "HTTP 200"
+    },
+    {
+      "id": "first_login_forces_password_change",
+      "ok": true,
+      "detail": "True"
+    },
+    {
+      "id": "bootstrap_admin_is_unique",
+      "ok": true,
+      "detail": "同名管理员=1"
+    },
+    {
+      "id": "no_demo_data_in_fresh_env",
+      "ok": true,
+      "detail": "DEMO 用户=0"
+    },
+    {
+      "id": "migration_at_head",
+      "ok": true,
+      "detail": "current=a7c2e9f4b105 head=a7c2e9f4b105"
+    }
+  ]
+}

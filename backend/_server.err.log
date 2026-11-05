@@ -1,0 +1,6 @@
+INFO:     Started server process [23800]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+{"ts": "2026-10-12T20:12:39+0800", "level": "INFO", "logger": "app.access", "message": "request_completed", "request_id": "70ab53dafbee4914a09fbac0a331b965", "method": "GET", "path": "/openapi.json", "status": 200, "elapsed_ms": 59.61}
+{"ts": "2026-10-12T20:12:52+0800", "level": "INFO", "logger": "app.access", "message": "request_completed", "request_id": "5d6a6ee1cc8c4888acdb7d80b70bb64d", "method": "GET", "path": "/openapi.json", "status": 200, "elapsed_ms": 0.52}

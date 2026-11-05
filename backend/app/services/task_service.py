@@ -3,8 +3,9 @@ R27 幂等创建；红线 复核任务不可直接 complete）。
 
 能力：
 - 派发 / 完成 / 交接 / 批量转移；
-- 幂等创建：以 (related_object_type, related_object_id, task_kind) 唯一
-  （同业务对象/类型/责任人且未关闭的不重复创建；R27）；
+- 幂等创建：以 (related_object_type, related_object_id, task_kind, assignee_id) 唯一
+  （同业务对象/类型/责任人且未关闭的不重复创建；R27；T09 起纳入责任人，
+  使续签评估可为业务员与经理各生成一条，R38/RK-6）；
 - **复核任务**（task_kind 以 `VERIFICATION::` 前缀或 `requires_related_document=True`
   标记）禁止 `complete()`，必须由关联单据动作通过 `close_by_document()` 关闭
   （Q023）；
@@ -37,6 +38,10 @@ TASK_KIND_SUPERVISION_RECTIFICATION = "SUPERVISION_RECTIFICATION"
 TASK_KIND_PROBLEM_RECTIFICATION_VERIFY = "PROBLEM_RECTIFICATION_VERIFY"
 TASK_KIND_CONTRACT_RENEWAL_VERIFY = "CONTRACT_RENEWAL_VERIFY"
 TASK_KIND_CONTRACT_EXPIRING_RENEWAL_EVAL = "CONTRACT_EXPIRING_RENEWAL_EVAL"
+# T15：地推活动复盘时样品未归还/缺失的提醒待办
+TASK_KIND_CAMPAIGN_SAMPLE_RETURN = "CAMPAIGN_SAMPLE_RETURN"
+# T21 / PRD §4.11：新生成的未处理风险自动进入片区经理待办
+TASK_KIND_RISK_HANDLING = "RISK_HANDLING"
 TASK_KIND_OTHER = "OTHER"
 
 # 复核任务：以 `VERIFICATION::` 前缀标记；create() 自动设 requires_related_document=True
@@ -61,6 +66,8 @@ _ALLOWED_TASK_KINDS = frozenset(
         TASK_KIND_PROBLEM_RECTIFICATION_VERIFY,
         TASK_KIND_CONTRACT_RENEWAL_VERIFY,
         TASK_KIND_CONTRACT_EXPIRING_RENEWAL_EVAL,
+        TASK_KIND_CAMPAIGN_SAMPLE_RETURN,
+        TASK_KIND_RISK_HANDLING,
         TASK_KIND_OTHER,
     }
 )
@@ -109,7 +116,10 @@ class TaskService:
         requires_doc = _is_verification_kind(task_kind)
 
         # 先查重（先查再插避免 IntegrityError 触发 session.rollback 吞掉事务）
-        existing = self._find_idempotent(related_object_type, related_object_id, task_kind)
+        # T09：幂等维度含责任人，同对象同类型不同责任人可各持一条（R38 续签待办）
+        existing = self._find_idempotent(
+            related_object_type, related_object_id, task_kind, assignee_id
+        )
         if existing is not None:
             raise ConflictError(
                 code="TASK_IDEMPOTENT_DUPLICATE",
@@ -143,13 +153,57 @@ class TaskService:
             ) from exc
         return item
 
+    def assign_idempotent(
+        self,
+        *,
+        title: str,
+        assignee_id: UUID,
+        task_kind: str,
+        related_object_type: str | None = None,
+        related_object_id: UUID | None = None,
+        description: str | None = None,
+    ) -> tuple[TaskItem, bool]:
+        """幂等派发（R27）：已存在未关闭同类任务则原样返回（created=False）。
+
+        与 `assign` 的区别：不抛 409，而是返回既有任务。供 T21 风险→经理待办等
+        自动派发场景使用（同一风险重复扫描不重复建待办）。
+        """
+        existing = self._find_idempotent(
+            related_object_type, related_object_id, task_kind, assignee_id
+        )
+        if existing is not None:
+            return existing, False
+        try:
+            item = self.assign(
+                title=title,
+                assignee_id=assignee_id,
+                task_kind=task_kind,
+                related_object_type=related_object_type,
+                related_object_id=related_object_id,
+                description=description,
+            )
+        except ConflictError:
+            again = self._find_idempotent(
+                related_object_type, related_object_id, task_kind, assignee_id
+            )
+            if again is None:
+                raise
+            return again, False
+        return item, True
+
     def _find_idempotent(
-        self, object_type: str | None, object_id: UUID | None, task_kind: str
+        self,
+        object_type: str | None,
+        object_id: UUID | None,
+        task_kind: str,
+        assignee_id: UUID | None = None,
     ) -> TaskItem | None:
         stmt = select(TaskItem).where(
             TaskItem.task_kind == task_kind,
             TaskItem.status.in_([TaskStatus.OPEN.value, TaskStatus.IN_PROGRESS.value]),
         )
+        if assignee_id is not None:
+            stmt = stmt.where(TaskItem.assignee_id == assignee_id)
         if object_type is None and object_id is None:
             stmt = stmt.where(TaskItem.related_object_type.is_(None))
             stmt = stmt.where(TaskItem.related_object_id.is_(None))

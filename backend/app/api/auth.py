@@ -10,15 +10,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.deps import current_actor, db_session
 from app.core.errors import (
     AuthError,
 )
+from app.core.metrics import (
+    METRIC_AUTH_LOGIN_FAILURE,
+    METRIC_RATE_LIMITED,
+    registry,
+)
 from app.core.permissions import ActorContext
+from app.core.rate_limiter import RateRule, rate_limiter
 from app.services import AuthService
 from app.services.auth_service import LoginResult
 
@@ -81,10 +89,73 @@ def _to_login_out(r: LoginResult) -> LoginOut:
 # ============== 端点 ==============
 
 
+LOGIN_RULE_NAME = "auth.login"
+
+
+def _client_ip(request: Request) -> str:
+    # 只取直连对端；受信反向代理应在网关覆写为 X-Forwarded-For 末跳，避免客户端伪造
+    return request.client.host if request.client else "unknown"
+
+
+def login_rate_guard(request: Request, payload: LoginIn) -> None:
+    """登录接口限流（Q167）：按 IP+用户名窗口计数，超限返回 429。
+
+    与"账号锁定"互补：锁定针对单账号撞库成功路径，限流针对匿名爆破流量。
+    """
+    settings = get_settings()
+    decision = rate_limiter.check(
+        RateRule(
+            LOGIN_RULE_NAME,
+            settings.rate_limit_login_max,
+            settings.rate_limit_login_window_seconds,
+        ),
+        f"{_client_ip(request)}:{payload.username.lower()}",
+    )
+    if not decision.allowed:
+        registry.counter(METRIC_RATE_LIMITED, "").inc(bucket=LOGIN_RULE_NAME)
+        raise LoginRateLimited(retry_after=decision.retry_after_seconds)
+
+
+class LoginRateLimited(Exception):
+    """登录触发速率限制；由专用处理器转 429。"""
+
+    def __init__(self, *, retry_after: int) -> None:
+        self.retry_after = retry_after
+
+
 @router.post("/login", response_model=LoginOut)
-def login(payload: LoginIn, session: Session = Depends(db_session)) -> LoginOut:  # noqa: B008
+def login(
+    request: Request,
+    payload: LoginIn,
+    session: Session = Depends(db_session),  # noqa: B008
+) -> LoginOut:
+    login_rate_guard(request, payload)
     svc = AuthService(session)
-    return _to_login_out(svc.login(username=payload.username, password=payload.password))
+    try:
+        result = svc.login(username=payload.username, password=payload.password)
+    except AuthError as exc:
+        # 登录失败监控（PRD §9.4）：按错误码计数，不记录用户名/密码/IP 明文
+        registry.counter(METRIC_AUTH_LOGIN_FAILURE, "").inc(reason=exc.code)
+        raise
+    return _to_login_out(result)
+
+
+def register_login_rate_handler(app: FastAPI) -> None:
+    """由 main 调用：把登录限流异常转成 429 JSON。"""
+
+    @app.exception_handler(LoginRateLimited)
+    async def _handler(_: Request, exc: LoginRateLimited) -> JSONResponse:
+        from app.core.errors import error_response_body
+
+        return JSONResponse(
+            status_code=429,
+            headers={"Retry-After": str(exc.retry_after)},
+            content=error_response_body(
+                "RATE_LIMITED",
+                "登录尝试过于频繁，请稍后再试",
+                {"retry_after_seconds": exc.retry_after},
+            ),
+        )
 
 
 @router.post("/logout", status_code=204)

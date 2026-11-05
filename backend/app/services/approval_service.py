@@ -16,12 +16,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, DomainError
 from app.core.permissions import ActorContext
-from app.models import ApprovalRequest
+from app.models import ApprovalRequest, User
 from app.models.enums import ApprovalStatus
 from app.services.approval_matrix import (
     ApprovalRule,
@@ -207,6 +207,48 @@ class ApprovalService:
         stmt = select(ApprovalRequest).where(
             ApprovalRequest.status == ApprovalStatus.PENDING.value
         )
+        if target_object_type is not None:
+            stmt = stmt.where(ApprovalRequest.target_object_type == target_object_type)
+        stmt = stmt.order_by(ApprovalRequest.created_at.asc()).limit(limit)
+        return list(self.session.execute(stmt).scalars().all())
+
+    def list_for_actor(
+        self,
+        actor: ActorContext,
+        *,
+        status: str | None = None,
+        target_object_type: str | None = None,
+        limit: int = 100,
+    ) -> list[ApprovalRequest]:
+        """本角色待办/已办审批（T23 `approval.list`）。
+
+        行级裁剪只由服务端 actor 注入：
+        - 待办（PENDING）：按**审批矩阵角色**路由到当前角色（`matrix_role_code`）；
+        - 已办（APPROVED/REJECTED/RETURNED/WITHDRAWN）：按**实际审批人**归属；
+        - 一律限定在当前用户数据集内（不跨数据域读取）。
+        """
+        user = self.session.get(User, actor.user_id)
+        if user is None:
+            raise DomainError(code="USER_NOT_FOUND", message="登录用户不存在")
+        pending_route = and_(
+            ApprovalRequest.status == ApprovalStatus.PENDING.value,
+            ApprovalRequest.matrix_role_code == actor.role_code,
+        )
+        decided_route = ApprovalRequest.approver_id == actor.user_id
+        stmt = select(ApprovalRequest).where(
+            ApprovalRequest.dataset_id == user.dataset_id
+        )
+        if status:
+            wanted = status.strip().upper()
+            stmt = stmt.where(ApprovalRequest.status == wanted)
+            if wanted == ApprovalStatus.PENDING.value:
+                stmt = stmt.where(
+                    ApprovalRequest.matrix_role_code == actor.role_code
+                )
+            else:
+                stmt = stmt.where(decided_route)
+        else:
+            stmt = stmt.where(or_(pending_route, decided_route))
         if target_object_type is not None:
             stmt = stmt.where(ApprovalRequest.target_object_type == target_object_type)
         stmt = stmt.order_by(ApprovalRequest.created_at.asc()).limit(limit)

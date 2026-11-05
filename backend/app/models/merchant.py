@@ -63,6 +63,11 @@ class Merchant(Base, ImmutableMixin, AuditMixin, DatasetMixin):
     )
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contact_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # PRD §4.3 档案项：主联系人姓名、营业时间
+    primary_contact_name: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    business_hours: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
 
 class MerchantContact(Base, AuditMixin):

@@ -1,0 +1,622 @@
+# ============================================================================
+# 沁爽饮料分销平台 · Text2SQL 业务语义层（L1）
+#
+# 三层架构中的语义层：不直接把 74 张物理表暴露给模型，而是用本文件描述
+# 核心实体（entities）、指标口径（metrics）、维度（dimensions）与业务术语
+# （glossary）。L2 检索层（Qdrant）按问题召回相关片段，Query Plan 只允许
+# 引用这里定义过的名字，再由编译器确定性地翻译成参数化 SQL。
+#
+# 口径红线（与数据库模型/迁移保持一致）：
+# - 金额一律 BIGINT 存「分」（*_fen），展示层除以 100 转元；
+# - 箱数为 NUMERIC(12,2)，禁止 float；
+# - 正式销量只认 sales_confirmations；巡访上报（visit_sales_lines）不算；
+# - 除 freezer_movements 外所有业务表都有 dataset_type+dataset_id 数据集隔离。
+# ============================================================================
+
+version: "1.0"
+name: qinshuang_semantic_layer
+
+# 全局约定，编译器/执行器统一读取
+defaults:
+  money_unit: fen                 # 库内金额单位：分
+  money_display_divisor: 100      # 展示换算：元 = 分 / 100
+  timezone: Asia/Shanghai         # 业务时间口径
+  period_month_format: "YYYY-MM"  # 业务月字符串格式（char(7)）
+  default_row_limit: 200          # 查询默认行数上限（执行器再兜底）
+
+# ---------------------------------------------------------------------------
+# 实体（entities）：一张表一个实体，只列语义查询用得到的列
+# 行级范围字段：
+#   region_column / brand_column：本表直接持有的行级授权列
+#   scope_via：行级授权经由哪个 relation 传递（如销量经商家过滤区域/品牌）
+#   user_column：「仅本人」范围使用的归属人列（工资/绩效/巡访等）
+# ---------------------------------------------------------------------------
+entities:
+
+  - name: merchant
+    table: merchants
+    description: 商家（终端门店/客户），归属一个区域与一个品牌，有等级 A/B/C
+    synonyms: [商家, 门店, 客户, 终端, 店铺, 终端门店]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    region_column: region_id
+    brand_column: brand_id
+    columns:
+      - {name: code, data_type: text, description: 商家编号}
+      - {name: name, data_type: text, description: 商家名称}
+      - {name: status, data_type: enum, description: "状态：LEAD 线索 / NEGOTIATING 洽谈 / ACTIVE 在营 / PAUSED 暂停 / TERMINATED 终止"}
+      - {name: grade, data_type: enum, description: "等级：A/B/C，可空"}
+      - {name: address, data_type: text, description: 地址}
+      - {name: primary_contact_name, data_type: text, description: 主联系人姓名}
+      - {name: region_id, data_type: uuid, description: 所属区域 ID}
+      - {name: brand_id, data_type: uuid, description: 所属品牌 ID}
+    relations:
+      - {name: region, target_entity: region, source_column: region_id, description: 所属区域}
+      - {name: brand, target_entity: brand, source_column: brand_id, description: 所属品牌}
+
+  - name: region
+    table: regions
+    description: 区域/片区，归属组织
+    synonyms: [区域, 片区, 大区]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    columns:
+      - {name: code, data_type: text, description: 区域编码}
+      - {name: name, data_type: text, description: 区域名称}
+      - {name: org_id, data_type: uuid, description: 所属组织 ID}
+    relations:
+      - {name: organization, target_entity: organization, source_column: org_id, description: 所属组织}
+
+  - name: organization
+    table: organizations
+    description: 组织（公司/事业部层级）
+    synonyms: [组织, 公司, 事业部]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    columns:
+      - {name: code, data_type: text, description: 组织编码}
+      - {name: name, data_type: text, description: 组织名称}
+    relations: []
+
+  - name: brand
+    table: brands
+    description: 品牌（产品线归属）
+    synonyms: [品牌]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    columns:
+      - {name: code, data_type: text, description: 品牌编码}
+      - {name: name, data_type: text, description: 品牌名称}
+    relations: []
+
+  - name: user
+    table: users
+    description: 系统用户/员工（业务员、片区经理、财务、督导等）
+    synonyms: [用户, 员工, 业务员, 人员, 同事]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    columns:
+      - {name: username, data_type: text, description: 登录名}
+      - {name: display_name, data_type: text, description: 姓名（展示名）}
+      - {name: status, data_type: enum, description: "状态：ACTIVE 正常 / INACTIVE 停用 / PENDING_ACTIVATION 待激活"}
+      - {name: role_id, data_type: uuid, description: 角色 ID}
+      - {name: phone, data_type: text, description: 手机号, sensitive: true}
+    relations:
+      - {name: role, target_entity: role, source_column: role_id, description: 所属角色}
+
+  - name: role
+    table: roles
+    description: 角色（role_code 绑定六类角色枚举）
+    synonyms: [角色, 岗位]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    columns:
+      - {name: code, data_type: text, description: 角色编码（展示名）}
+      - {name: name, data_type: text, description: 角色名称}
+      - {name: role_code, data_type: enum, description: "角色锚：SALES_REP 业务员 / REGIONAL_MANAGER 片区经理 / SUPERVISOR 督导 / FINANCE 财务 / SYSTEM_ADMIN 系统管理员 / SUPPLIER 厂商"}
+    relations: []
+
+  - name: product_category
+    table: product_categories
+    description: 产品分类（支持父子层级）
+    synonyms: [产品分类, 品类, 类别]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    columns:
+      - {name: code, data_type: text, description: 分类编码}
+      - {name: name, data_type: text, description: 分类名称}
+      - {name: parent_id, data_type: uuid, description: 父分类 ID}
+    relations: []
+
+  - name: sku
+    table: skus
+    description: SKU 商品，归属品牌与分类，箱数规格 case_spec
+    synonyms: [商品, SKU, 产品, sku]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    brand_column: brand_id
+    columns:
+      - {name: code, data_type: text, description: SKU 编码}
+      - {name: name, data_type: text, description: 商品名称}
+      - {name: brand_id, data_type: uuid, description: 品牌 ID}
+      - {name: category_id, data_type: uuid, description: 分类 ID}
+      - {name: capacity_ml, data_type: integer, description: 容量（毫升）}
+      - {name: case_spec, data_type: numeric, description: 箱规（每箱包/瓶数）}
+      - {name: spec_text, data_type: text, description: "规格原文，如 500ml/瓶×24瓶"}
+      - {name: suggested_price_fen, data_type: money, description: 建议零售价（分）}
+      - {name: purchase_price_fen, data_type: money, description: 参考进价（分），估算毛利用}
+    relations:
+      - {name: brand, target_entity: brand, source_column: brand_id, description: 所属品牌}
+      - {name: category, target_entity: product_category, source_column: category_id, description: 所属分类}
+
+  - name: sales_confirmation
+    table: sales_confirmations
+    description: 销量确认行（业务员巡访上报、经理确认后的正式销量，唯一权威销量口径）
+    synonyms: [销量确认, 确认销量, 正式销量, 周销量确认]
+    primary_key: id
+    time_column: biz_date
+    time_granularity: date
+    dataset_scoped: true
+    scope_via: merchant
+    columns:
+      - {name: merchant_id, data_type: uuid, description: 商家 ID}
+      - {name: sku_id, data_type: uuid, description: SKU ID}
+      - {name: biz_date, data_type: date, description: 业务日期}
+      - {name: confirmed_boxes, data_type: numeric, description: 确认箱数}
+      - {name: amount_fen, data_type: money, description: 确认金额（分）}
+      - {name: cost_fen, data_type: money, description: 确认成本（分，箱数×箱规×参考进价）}
+      - {name: profit_fen, data_type: money, description: 确认毛利（分，金额 − 成本）}
+      - {name: confirmer_id, data_type: uuid, description: 确认人（经理）用户 ID}
+    relations:
+      - {name: merchant, target_entity: merchant, source_column: merchant_id, description: 所属商家}
+      - {name: sku, target_entity: sku, source_column: sku_id, description: 商品}
+      - {name: confirmer, target_entity: user, source_column: confirmer_id, description: 确认人}
+
+  - name: visit_task
+    table: visit_tasks
+    description: 巡访任务（计划巡访：商家、负责人、计划日期、来源、状态）
+    synonyms: [巡访任务, 拜访任务, 巡店任务]
+    primary_key: id
+    time_column: planned_date
+    time_granularity: date
+    dataset_scoped: true
+    scope_via: merchant
+    user_column: assigned_user_id
+    columns:
+      - {name: merchant_id, data_type: uuid, description: 商家 ID}
+      - {name: assigned_user_id, data_type: uuid, description: 负责人（业务员）用户 ID}
+      - {name: planned_date, data_type: date, description: 计划巡访日期}
+      - {name: priority, data_type: integer, description: "优先级：1 高 / 2 中 / 3 低"}
+      - {name: source, data_type: enum, description: "来源：WEEKLY_SCHEDULE 周排程 / AD_HOC 临时 / RECTIFICATION 整改 / SUPERVISION 督导跟访"}
+      - {name: status, data_type: enum, description: "状态：PENDING 待执行 / IN_PROGRESS 进行中 / COMPLETED 已完成 / OVERDUE 逾期 / ABNORMAL 异常 / INVALIDATED 已作废"}
+    relations:
+      - {name: merchant, target_entity: merchant, source_column: merchant_id, description: 巡访商家}
+      - {name: assignee, target_entity: user, source_column: assigned_user_id, description: 负责人}
+
+  - name: visit_record
+    table: visit_records
+    description: 巡访记录（正式到店打卡记录，含冰柜状态/陈列达标/有效性裁决；一任务至多一条正式记录）
+    synonyms: [巡访记录, 拜访记录, 巡店记录, 打卡记录]
+    primary_key: id
+    time_column: checkin_at
+    time_granularity: datetime
+    dataset_scoped: true
+    scope_via: merchant
+    user_column: user_id
+    columns:
+      - {name: visit_task_id, data_type: uuid, description: 关联巡访任务 ID}
+      - {name: merchant_id, data_type: uuid, description: 商家 ID}
+      - {name: user_id, data_type: uuid, description: 巡访人（业务员）用户 ID}
+      - {name: source, data_type: enum, description: "来源：WEEKLY_SCHEDULE / AD_HOC / RECTIFICATION / SUPERVISION（督导跟访不计业务员覆盖率）"}
+      - {name: checkin_at, data_type: datetime, description: 到店打卡时间（UTC）}
+      - {name: checkout_at, data_type: datetime, description: 离店打卡时间（UTC）}
+      - {name: display_pct, data_type: integer, description: 陈列占比（0-100）}
+      - {name: display_met, data_type: boolean, description: 陈列是否达标（display_pct >= 合同阈值）}
+      - {name: freezer_status, data_type: enum, description: "冰柜状态：NORMAL / ABSENT 缺失 / POWERED_OFF 断电 / DIRTY / DAMAGED 损坏 / OTHER"}
+      - {name: device_issue, data_type: text, description: 设备异常描述（非空即有异常）}
+      - {name: conclusion, data_type: enum, description: "当日结论：NORMAL / NEEDS_REPLENISHMENT 需补货 / NEEDS_RECTIFICATION 需整改 / RISK_MERCHANT 风险商家 / PROPOSE_TERMINATION 建议终止"}
+      - {name: distance_meters, data_type: numeric, description: 打卡点与商家距离（米，服务端重算）}
+      - {name: photo_count, data_type: integer, description: 现场照片数}
+      - {name: is_official, data_type: boolean, description: 是否任务正式记录（一任务至多一条 true）}
+      - {name: status, data_type: enum, description: "提交状态：DRAFT / SUBMITTED / RECOGNIZED 判定有效 / ABNORMAL_PENDING / ABNORMAL 异常 / REJECTED"}
+      - {name: validity, data_type: enum, description: "有效性裁决：VALID 有效 / ABNORMAL_PENDING 待判定 / INVALID 无效"}
+    relations:
+      - {name: visit_task, target_entity: visit_task, source_column: visit_task_id, description: 所属巡访任务}
+      - {name: merchant, target_entity: merchant, source_column: merchant_id, description: 巡访商家}
+      - {name: visitor, target_entity: user, source_column: user_id, description: 巡访人}
+
+  - name: visit_sales_line
+    table: visit_sales_lines
+    description: 巡访上报 SKU 销量行（业务员上报值，经理确认前不进正式口径；正式销量只认 sales_confirmations）
+    synonyms: [上报销量, 巡访销量, 销量上报行]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    columns:
+      - {name: visit_record_id, data_type: uuid, description: 所属巡访记录 ID}
+      - {name: sku_id, data_type: uuid, description: SKU ID}
+      - {name: reported_boxes, data_type: numeric, description: 上报箱数}
+      - {name: feedback, data_type: text, description: 商家反馈}
+      - {name: out_of_stock, data_type: boolean, description: 是否缺货}
+    relations:
+      - {name: visit_record, target_entity: visit_record, source_column: visit_record_id, description: 所属巡访记录}
+      - {name: sku, target_entity: sku, source_column: sku_id, description: 商品}
+
+  - name: freezer_asset
+    table: freezer_assets
+    description: 冰柜资产台账（状态快照：当前状态、在店商家、维修次数、押金；历史变化看 freezer_movements）
+    synonyms: [冰柜, 冰柜资产, 冷柜, 设备]
+    primary_key: id
+    time_column: null
+    dataset_scoped: true
+    brand_column: brand_id
+    user_column: responsible_user_id
+    columns:
+      - {name: asset_code, data_type: text, description: 资产编号}
+      - {name: brand_id, data_type: uuid, description: 品牌 ID}
+      - {name: model, data_type: text, description: 型号}
+      - {name: purchase_date, data_type: date, description: 购置日期}
+      - {name: purchase_price_fen, data_type: money, description: 购置价（分）}
+      - {name: deposit_fen, data_type: money, description: 押金（分，可空）}
+      - {name: status, data_type: enum, description: "状态：IN_STOCK 在库 / RESERVED 已预留 / DEPLOYED 已投放 / PENDING_PICKUP 待撤回 / PENDING_ACCEPTANCE 待验收 / REPAIRING 维修中 / SCRAPPED 已报废 / IN_TRANSIT 在途 / UNDER_MAINTENANCE 保养中"}
+      - {name: current_merchant_id, data_type: uuid, description: 当前所在商家 ID（仅在店状态非空）}
+      - {name: responsible_user_id, data_type: uuid, description: 责任人用户 ID}
+      - {name: repair_count, data_type: integer, description: 累计维修次数}
+      - {name: last_deployed_at, data_type: datetime, description: 最近投放时间}
+      - {name: last_recalled_at, data_type: datetime, description: 最近撤回时间}
+      - {name: recall_status, data_type: enum, description: "撤回申请：PENDING 待审批 / APPROVED 已同意 / REJECTED 已驳回，空=未申请"}
+      - {name: recall_planned_date, data_type: date, description: 撤回计划日期}
+    relations:
+      - {name: brand, target_entity: brand, source_column: brand_id, description: 所属品牌}
+      - {name: current_merchant, target_entity: merchant, source_column: current_merchant_id, description: 当前所在商家}
+      - {name: responsible_user, target_entity: user, source_column: responsible_user_id, description: 责任人}
+
+  - name: freezer_movement
+    table: freezer_movements
+    description: 冰柜资产流水（购置/投放/撤回/验收/维修/报废/押金收缴退还；一条流水即投放单/回收单/验收单/押金单）
+    synonyms: [冰柜流水, 投放单, 回收单, 验收单, 押金单, 资产流水]
+    primary_key: id
+    time_column: occurred_at
+    time_granularity: datetime
+    dataset_scoped: false   # 注意：本表无 dataset_type/dataset_id 列
+    columns:
+      - {name: asset_id, data_type: uuid, description: 冰柜资产 ID}
+      - {name: movement_type, data_type: enum, description: "流水类型：PURCHASE 购置 / DEPLOYMENT_ORDER 投放单创建 / DEPLOY 投放 / RECALL 撤回 / PICKUP 回收 / ACCEPT 验收 / REPAIR_START 维修开始 / REPAIR_END 维修结束 / SCRAP 报废 / DEPOSIT_COLLECTED 押金收缴 / DEPOSIT_REFUNDED 押金退还 等"}
+      - {name: doc_no, data_type: text, description: 对外单号（全局唯一）}
+      - {name: merchant_id, data_type: uuid, description: 相关商家 ID（可空）}
+      - {name: contract_id, data_type: uuid, description: 相关合同 ID（可空）}
+      - {name: amount_fen, data_type: money, description: 金额（分，押金流水用）}
+      - {name: from_status, data_type: enum, description: 变更前状态}
+      - {name: to_status, data_type: enum, description: 变更后状态}
+      - {name: occurred_at, data_type: datetime, description: 发生时间}
+      - {name: operator_id, data_type: uuid, description: 操作人用户 ID}
+    relations:
+      - {name: asset, target_entity: freezer_asset, source_column: asset_id, description: 所属冰柜}
+      - {name: merchant, target_entity: merchant, source_column: merchant_id, description: 相关商家}
+      - {name: operator, target_entity: user, source_column: operator_id, description: 操作人}
+
+  - name: contract
+    table: contracts
+    description: 合同（商家签约，含陈列阈值/提成规则版本固化；生效状态为 EFFECTIVE）
+    synonyms: [合同, 协议, 签约]
+    primary_key: id
+    time_column: effective_from
+    time_granularity: date
+    dataset_scoped: true
+    user_column: sales_rep_user_id
+    columns:
+      - {name: contract_no, data_type: text, description: 合同编号（全局唯一）}
+      - {name: merchant_id, data_type: uuid, description: 签约商家 ID}
+      - {name: title, data_type: text, description: 合同标题}
+      - {name: status, data_type: enum, description: "状态：DRAFT 草稿 / PENDING_APPROVAL 待审批 / RETURNED 退回 / REJECTED 驳回 / APPROVED 已批准 / EFFECTIVE 生效 / TERMINATION_PENDING 终止审批中 / TERMINATED 已终止"}
+      - {name: signed_at, data_type: date, description: 签署日期}
+      - {name: effective_from, data_type: date, description: 生效日期}
+      - {name: expire_at, data_type: date, description: 到期日期}
+      - {name: commission_rate, data_type: numeric, description: 提成比例（0-1 小数）}
+      - {name: display_threshold_pct, data_type: integer, description: 陈列达标最低占比（0-100，建合同即固化）}
+      - {name: display_subsidy_amount, data_type: money, description: 陈列补贴金额（分）}
+      - {name: sales_rep_user_id, data_type: uuid, description: 负责业务员用户 ID}
+    relations:
+      - {name: merchant, target_entity: merchant, source_column: merchant_id, description: 签约商家}
+      - {name: sales_rep, target_entity: user, source_column: sales_rep_user_id, description: 负责业务员}
+
+  - name: performance_record
+    table: performance_records
+    description: 绩效记录（按用户+周期一行：新签合同数、确认销售额、提成、责任扣款）
+    synonyms: [绩效记录, 绩效]
+    primary_key: id
+    time_column: period_start
+    time_granularity: date
+    dataset_scoped: true
+    user_column: user_id
+    columns:
+      - {name: user_id, data_type: uuid, description: 归属用户 ID}
+      - {name: period_start, data_type: date, description: 周期开始}
+      - {name: period_end, data_type: date, description: 周期结束}
+      - {name: new_contracts_count, data_type: integer, description: 新签合同数}
+      - {name: confirmed_sales_amount_fen, data_type: money, description: 绩效确认销售额（分）}
+      - {name: commission_fen, data_type: money, description: 提成金额（分）}
+      - {name: deduction_fen, data_type: money, description: 责任扣款（分，<=0）}
+    relations:
+      - {name: owner, target_entity: user, source_column: user_id, description: 归属用户}
+
+  - name: performance_snapshot
+    table: performance_monthly_snapshots
+    description: 月度绩效快照（月末冻结，含各分类金额与净额；CONFIRMED 经理确认、REVIEWED 财务复核后不可改）
+    synonyms: [绩效快照, 月度绩效, 绩效月报]
+    primary_key: id
+    time_column: period_month
+    time_granularity: month
+    dataset_scoped: true
+    user_column: user_id
+    columns:
+      - {name: user_id, data_type: uuid, description: 归属用户 ID}
+      - {name: period_month, data_type: month, description: "业务月（YYYY-MM，Asia/Shanghai）"}
+      - {name: period_start, data_type: date, description: 周期开始}
+      - {name: period_end, data_type: date, description: 周期结束}
+      - {name: new_contract_fen, data_type: money, description: 新签提成（分）}
+      - {name: visit_bonus_fen, data_type: money, description: 巡访奖励（分）}
+      - {name: sales_commission_fen, data_type: money, description: 销量提成（分）}
+      - {name: activity_bonus_fen, data_type: money, description: 活动奖励（分）}
+      - {name: deduction_fen, data_type: money, description: 扣减合计（分，<=0）}
+      - {name: adjustment_fen, data_type: money, description: 调整合计（分，>=0）}
+      - {name: net_performance_fen, data_type: money, description: 绩效净额（分）= 四项提成 + 调整 + 扣减}
+      - {name: status, data_type: enum, description: "状态：DRAFT / CONFIRMED 经理已确认 / REVIEWED 财务已复核"}
+    relations:
+      - {name: owner, target_entity: user, source_column: user_id, description: 归属用户}
+
+  - name: payroll_statement
+    table: payroll_statements
+    description: 月度工资单（应发 = 底薪 + 已复核绩效 + 审批调整；PAID 后金额固化，差异走更正单）
+    synonyms: [工资单, 工资, 薪资, 薪酬单]
+    primary_key: id
+    time_column: period_month
+    time_granularity: month
+    dataset_scoped: true
+    user_column: user_id
+    columns:
+      - {name: statement_no, data_type: text, description: 工资单号（全局唯一）}
+      - {name: user_id, data_type: uuid, description: 员工用户 ID}
+      - {name: period_month, data_type: month, description: "业务月（YYYY-MM）"}
+      - {name: period_start, data_type: date, description: 周期开始}
+      - {name: period_end, data_type: date, description: 周期结束}
+      - {name: base_salary_fen, data_type: money, description: 底薪（分）}
+      - {name: performance_fen, data_type: money, description: 绩效工资（分）}
+      - {name: adjustment_fen, data_type: money, description: 发放前审批调整（分，可正可负）}
+      - {name: gross_pay_fen, data_type: money, description: 应发工资（分）= 底薪 + 绩效 + 调整}
+      - {name: correction_fen, data_type: money, description: PAID 后更正单合计（分）}
+      - {name: corrected_pay_fen, data_type: money, description: 更正后应发（分，未更正为 NULL）}
+      - {name: status, data_type: enum, description: "状态：DRAFT / REVIEWED 经理确认 / APPROVED 财务复核 / PAID 已发放"}
+      - {name: paid_on, data_type: date, description: 发放日期}
+      - {name: performance_snapshot_id, data_type: uuid, description: 关联绩效快照 ID（可空）}
+    relations:
+      - {name: employee, target_entity: user, source_column: user_id, description: 员工}
+      - {name: performance_snapshot, target_entity: performance_snapshot, source_column: performance_snapshot_id, description: 关联绩效快照}
+
+  - name: expense
+    table: expenses
+    description: 费用单（采购/冰柜购置/冰柜维修/活动/其他；仅 APPROVED 计入损益）
+    synonyms: [费用, 费用单, 开支]
+    primary_key: id
+    time_column: incurred_on
+    time_granularity: date
+    dataset_scoped: true
+    columns:
+      - {name: expense_no, data_type: text, description: 费用单号（全局唯一）}
+      - {name: type, data_type: enum, description: "类型：PROCUREMENT 采购 / FREEZER_PURCHASE 冰柜购置 / FREEZER_REPAIR 冰柜维修 / ACTIVITY 活动 / OTHER 其他"}
+      - {name: title, data_type: text, description: 费用标题}
+      - {name: amount_fen, data_type: money, description: 金额（分，>0）}
+      - {name: incurred_on, data_type: date, description: 费用发生日}
+      - {name: period_month, data_type: month, description: "归属月份（YYYY-MM）"}
+      - {name: status, data_type: enum, description: "状态：PENDING_APPROVAL 待审批 / APPROVED 已审批 / REJECTED 已驳回"}
+    relations: []
+
+  - name: finance_transaction
+    table: finance_transactions
+    description: 财务流水（收入/支出/调整；支出以负数入账，净额 = 流水代数和）
+    synonyms: [财务流水, 收支, 总账, 流水账, 账目]
+    primary_key: id
+    time_column: biz_date
+    time_granularity: date
+    dataset_scoped: true
+    columns:
+      - {name: biz_date, data_type: date, description: 业务日期}
+      - {name: tx_type, data_type: enum, description: "类型：INCOME 收入 / EXPENSE 支出 / ADJUSTMENT 调整"}
+      - {name: source_kind, data_type: enum, description: "来源：SALES_REVENUE 销售收款 / PROCUREMENT 采购 / PAYROLL 工资 / ASSET 资产 / COMPANY_PURCHASE 公司采购 / OPEX 运营 / OTHER 其他"}
+      - {name: amount_fen, data_type: money, description: "金额（分，收入为正、支出为负）"}
+      - {name: related_object_type, data_type: text, description: 来源单据类型（可追溯）}
+      - {name: note, data_type: text, description: 备注}
+    relations: []
+
+# ---------------------------------------------------------------------------
+# 维度（dimensions）：分组/筛选视角；编译时绑定到实体列
+# ---------------------------------------------------------------------------
+dimensions:
+
+  - {name: sales_date, entity: sales_confirmation, column: biz_date, description: 销量业务日期, synonyms: [销量日期, 业务日期]}
+  - {name: visit_planned_date, entity: visit_task, column: planned_date, description: 巡访计划日期, synonyms: [计划日期, 巡访日期]}
+  - {name: visit_checkin_at, entity: visit_record, column: checkin_at, description: 巡访到店时间, synonyms: [打卡时间, 到店时间]}
+  - {name: movement_at, entity: freezer_movement, column: occurred_at, description: 流水发生时间, synonyms: [流水时间, 发生时间]}
+  - {name: perf_period_month, entity: performance_snapshot, column: period_month, description: 绩效业务月（YYYY-MM）, synonyms: [绩效月份, 业务月]}
+  - {name: payroll_period_month, entity: payroll_statement, column: period_month, description: 工资业务月（YYYY-MM）, synonyms: [工资月份, 发薪月份]}
+  - {name: expense_period_month, entity: expense, column: period_month, description: 费用归属月（YYYY-MM）, synonyms: [费用月份]}
+  - {name: contract_effective_from, entity: contract, column: effective_from, description: 合同生效日期, synonyms: [合同生效日, 生效日期]}
+
+  # 时间分桶维度（time_bucket）：编译为 date_trunc + to_char，输出可直接展示且字典序即时间序
+  - {name: sales_month, entity: sales_confirmation, column: biz_date, time_bucket: month, description: 销量所属月份（YYYY-MM）, synonyms: [销量月份, 按月销量, 每月销量, 月度销量]}
+  - {name: sales_day, entity: sales_confirmation, column: biz_date, time_bucket: day, description: 销量所属日期（YYYY-MM-DD）, synonyms: [销量日, 按天销量, 每日销量, 最近一周销量]}
+  - {name: finance_month, entity: finance_transaction, column: biz_date, time_bucket: month, description: 财务流水月份（YYYY-MM）, synonyms: [收支月份, 财务月份, 每月收支, 月度收支]}
+  - {name: finance_day, entity: finance_transaction, column: biz_date, time_bucket: day, description: 财务流水所属日期（YYYY-MM-DD）, synonyms: [收支日期, 流水日期, 按天收支, 每日收支, 每天收支, 最近几天收支, 最近几天流水]}
+  - {name: contract_month, entity: contract, column: effective_from, time_bucket: month, description: 合同生效月份（YYYY-MM）, synonyms: [合同月份, 按月签约, 每月合同]}
+
+  - {name: merchant_name, entity: merchant, column: name, description: 商家名称, synonyms: [商家, 门店, 客户]}
+  - {name: merchant_grade, entity: merchant, column: grade, description: 商家等级（A/B/C）, synonyms: [商家等级, 门店等级, 客户等级]}
+  - {name: merchant_status, entity: merchant, column: status, description: 商家状态, synonyms: [商家状态, 门店状态]}
+  - {name: region_name, entity: region, column: name, description: 区域名称, synonyms: [区域, 片区, 大区]}
+  - {name: brand_name, entity: brand, column: name, description: 品牌名称, synonyms: [品牌]}
+  - {name: sku_name, entity: sku, column: name, description: 商品名称, synonyms: [商品, 产品, sku]}
+  - {name: category_name, entity: product_category, column: name, description: 产品分类名称, synonyms: [品类, 类别, 分类]}
+  - {name: staff_name, entity: user, column: display_name, description: 员工/业务员姓名, synonyms: [业务员, 员工, 姓名, 人员, 负责人, 巡访人, 责任人, 确认人, 经理]}
+  - {name: role_name, entity: role, column: name, description: 角色名称, synonyms: [角色, 岗位]}
+
+  - {name: visit_task_status, entity: visit_task, column: status, description: 巡访任务状态, synonyms: [任务状态]}
+  - {name: visit_task_source, entity: visit_task, column: source, description: 巡访任务来源, synonyms: [任务来源, 巡访来源]}
+  - {name: visit_record_status, entity: visit_record, column: status, description: 巡访记录提交状态, synonyms: [记录状态]}
+  - {name: visit_validity, entity: visit_record, column: validity, description: 巡访有效性裁决, synonyms: [有效性, 巡访有效性]}
+  - {name: visit_conclusion, entity: visit_record, column: conclusion, description: 巡访当日结论, synonyms: [巡访结论, 当日结论]}
+  - {name: visit_freezer_status, entity: visit_record, column: freezer_status, description: 巡访时冰柜状态, synonyms: [巡访冰柜状态]}
+
+  - {name: freezer_status, entity: freezer_asset, column: status, description: 冰柜资产状态, synonyms: [冰柜状态, 资产状态]}
+  - {name: freezer_model, entity: freezer_asset, column: model, description: 冰柜型号, synonyms: [型号]}
+  - {name: movement_type, entity: freezer_movement, column: movement_type, description: 冰柜流水类型, synonyms: [流水类型, 单据类型]}
+
+  - {name: contract_status, entity: contract, column: status, description: 合同状态, synonyms: [合同状态]}
+  - {name: snapshot_status, entity: performance_snapshot, column: status, description: 绩效快照状态, synonyms: [快照状态]}
+  - {name: payroll_status, entity: payroll_statement, column: status, description: 工资单状态, synonyms: [工资单状态, 发放状态]}
+  - {name: expense_type, entity: expense, column: type, description: 费用类型, synonyms: [费用类型]}
+  - {name: expense_status, entity: expense, column: status, description: 费用审批状态, synonyms: [费用状态]}
+
+# ---------------------------------------------------------------------------
+# 指标（metrics）：expression 为基于所属实体列的 SQL 聚合片段（不带表前缀），
+# 由编译器编译为参数化 SQL；unit 取值：box 箱 / money 金额（分，展示除100）/
+# count 计数 / ratio 比率（0-1）/ money_per_box 每箱金额（分）
+# ---------------------------------------------------------------------------
+metrics:
+
+  # ---- 销量域（正式口径：sales_confirmations）----
+  - {name: confirmed_sales_boxes, entity: sales_confirmation, expression: "SUM(confirmed_boxes)", unit: box, description: 确认销量（箱），正式销量口径, synonyms: [确认销量, 销量, 销量箱数, 箱数, 卖了多少箱]}
+  - {name: confirmed_sales_amount, entity: sales_confirmation, expression: "SUM(amount_fen)", unit: money, description: 确认销售额（分），正式销量金额口径, synonyms: [确认销售额, 销售额, 销量金额, 卖了多少钱, 营收]}
+  - {name: confirmed_sales_line_count, entity: sales_confirmation, expression: "COUNT(*)", unit: count, description: 销量确认行数, synonyms: [确认行数, 确认笔数]}
+  - {name: avg_confirmed_box_price, entity: sales_confirmation, expression: "ROUND(SUM(amount_fen)::numeric / NULLIF(SUM(confirmed_boxes), 0), 2)", unit: money_per_box, description: 确认单箱均价（分/箱）= 确认销售额 / 确认箱数, synonyms: [单箱均价, 箱均价, 平均单价]}
+  - {name: confirmed_sales_profit, entity: sales_confirmation, expression: "SUM(profit_fen)", unit: money, description: 确认毛利（分，确认销售额 − 确认成本，T36 口径）, synonyms: [毛利, 毛利额, 利润, 赚钱]}
+  - {name: reported_sales_boxes, entity: visit_sales_line, expression: "SUM(reported_boxes)", unit: box, description: 巡访上报销量（箱）。注意：上报口径，经理确认前不算正式销量, synonyms: [上报销量, 上报箱数, 巡访上报销量]}
+  - {name: out_of_stock_count, entity: visit_sales_line, expression: "COUNT(*) FILTER (WHERE out_of_stock)", unit: count, description: 缺货上报行数, synonyms: [缺货次数, 缺货记录数, 断货次数]}
+
+  # ---- 商家域 ----
+  - {name: merchant_count, entity: merchant, expression: "COUNT(*)", unit: count, description: 商家总数, synonyms: [商家数, 门店数, 客户数, 终端数]}
+  - {name: active_merchant_count, entity: merchant, expression: "COUNT(*) FILTER (WHERE status = 'ACTIVE')", unit: count, description: 在营商家数, synonyms: [在营商家数, 活跃门店数, 正常营业商家数]}
+
+  # ---- 巡访域 ----
+  - {name: visit_task_count, entity: visit_task, expression: "COUNT(*)", unit: count, description: 巡访任务数, synonyms: [巡访任务数, 拜访任务数, 任务数]}
+  - {name: visit_record_count, entity: visit_record, expression: "COUNT(*)", unit: count, description: 巡访记录数, synonyms: [巡访记录数, 拜访次数, 巡访次数, 打卡次数]}
+  - {name: completed_visit_task_count, entity: visit_task, expression: "COUNT(*) FILTER (WHERE status = 'COMPLETED')", unit: count, description: 已完成巡访任务数, synonyms: [已完成任务数, 完成任务数]}
+  - {name: visit_task_completion_rate, entity: visit_task, expression: "COUNT(*) FILTER (WHERE status = 'COMPLETED')::numeric / NULLIF(COUNT(*), 0)", unit: ratio, description: 巡访任务完成率 = 已完成任务数 / 任务总数, synonyms: [任务完成率, 巡访完成率]}
+  - {name: valid_visit_count, entity: visit_record, expression: "COUNT(*) FILTER (WHERE status = 'RECOGNIZED' OR validity = 'VALID')", unit: count, description: 有效巡访数 = 经理判定计入（RECOGNIZED）或系统裁决有效（VALID）, synonyms: [有效巡访数, 有效拜访数]}
+  - {name: valid_visit_rate, entity: visit_record, expression: "COUNT(*) FILTER (WHERE status = 'RECOGNIZED' OR validity = 'VALID')::numeric / NULLIF(COUNT(*), 0)", unit: ratio, description: 有效巡访率 = 有效巡访数 / 巡访记录总数, synonyms: [有效巡访率, 巡访有效率]}
+  - {name: display_met_count, entity: visit_record, expression: "COUNT(*) FILTER (WHERE display_met)", unit: count, description: 陈列达标巡访次数, synonyms: [陈列达标次数, 达标巡访数]}
+  - {name: display_met_rate, entity: visit_record, expression: "COUNT(*) FILTER (WHERE display_met)::numeric / NULLIF(COUNT(*) FILTER (WHERE display_met IS NOT NULL), 0)", unit: ratio, description: 陈列达标率 = 达标次数 / 有判定的巡访记录数, synonyms: [陈列达标率, 达标率]}
+  - {name: abnormal_visit_count, entity: visit_record, expression: "COUNT(*) FILTER (WHERE validity = 'INVALID' OR status = 'ABNORMAL')", unit: count, description: 异常/无效巡访数, synonyms: [异常巡访数, 无效巡访数, 异常拜访数]}
+
+  # ---- 冰柜域 ----
+  - {name: freezer_asset_count, entity: freezer_asset, expression: "COUNT(*)", unit: count, description: 冰柜资产总数, synonyms: [冰柜数, 冰柜资产数, 冷柜数, 设备数]}
+  - {name: deployed_freezer_count, entity: freezer_asset, expression: "COUNT(*) FILTER (WHERE status = 'DEPLOYED')", unit: count, description: 已投放冰柜数（当前状态快照）, synonyms: [已投放冰柜数, 投放中冰柜数]}
+  - {name: in_store_freezer_count, entity: freezer_asset, expression: "COUNT(*) FILTER (WHERE status IN ('DEPLOYED', 'PENDING_PICKUP'))", unit: count, description: 在店冰柜数 = 已投放 + 待撤回, synonyms: [在店冰柜数, 店内冰柜数]}
+  - {name: freezer_deployment_count, entity: freezer_movement, expression: "COUNT(*) FILTER (WHERE movement_type = 'DEPLOY')", unit: count, description: 冰柜投放次数（流水口径）, synonyms: [投放次数, 冰柜投放次数]}
+  - {name: freezer_recall_count, entity: freezer_movement, expression: "COUNT(*) FILTER (WHERE movement_type = 'RECALL')", unit: count, description: 冰柜撤回次数（流水口径）, synonyms: [撤回次数, 回收次数, 冰柜撤回次数]}
+  - {name: freezer_repair_count, entity: freezer_movement, expression: "COUNT(*) FILTER (WHERE movement_type = 'REPAIR_START')", unit: count, description: 冰柜维修次数（维修开始流水）, synonyms: [维修次数, 冰柜维修次数, 报修次数]}
+  - {name: deposit_collected_amount, entity: freezer_movement, expression: "SUM(amount_fen) FILTER (WHERE movement_type = 'DEPOSIT_COLLECTED')", unit: money, description: 已收冰柜押金（分）, synonyms: [已收押金, 押金收入, 收取押金]}
+  - {name: deposit_refunded_amount, entity: freezer_movement, expression: "SUM(amount_fen) FILTER (WHERE movement_type = 'DEPOSIT_REFUNDED')", unit: money, description: 已退冰柜押金（分）, synonyms: [已退押金, 退还押金]}
+
+  # ---- 绩效域 ----
+  - {name: perf_new_contract_count, entity: performance_record, expression: "SUM(new_contracts_count)", unit: count, description: 新签合同数（绩效口径）, synonyms: [新签合同数, 新签数, 新签合同]}
+  - {name: contract_signed_count, entity: contract, expression: "COUNT(*) FILTER (WHERE status <> 'DRAFT')", unit: count, description: 已提交及以上的合同数量（排除草稿）, synonyms: [合同数, 合同数量, 签约数, 签订合同数, 签了几份合同]}
+  - {name: perf_confirmed_sales_amount, entity: performance_record, expression: "SUM(confirmed_sales_amount_fen)", unit: money, description: 绩效确认销售额（分）, synonyms: [绩效销售额, 绩效确认销售额]}
+  - {name: perf_commission_amount, entity: performance_record, expression: "SUM(commission_fen)", unit: money, description: 提成金额（分，绩效记录口径）, synonyms: [提成, 提成金额, 佣金]}
+  - {name: net_performance_amount, entity: performance_snapshot, expression: "SUM(net_performance_fen)", unit: money, description: 绩效净额（分，月度快照口径）, synonyms: [绩效净额, 绩效总额, 绩效金额]}
+  - {name: sales_commission_amount, entity: performance_snapshot, expression: "SUM(sales_commission_fen)", unit: money, description: 销量提成（分）, synonyms: [销量提成, 销售提成]}
+  - {name: visit_bonus_amount, entity: performance_snapshot, expression: "SUM(visit_bonus_fen)", unit: money, description: 巡访奖励（分）, synonyms: [巡访奖励, 拜访奖励]}
+  - {name: activity_bonus_amount, entity: performance_snapshot, expression: "SUM(activity_bonus_fen)", unit: money, description: 活动奖励（分）, synonyms: [活动奖励]}
+  - {name: perf_deduction_amount, entity: performance_snapshot, expression: "SUM(deduction_fen)", unit: money, description: 绩效扣减合计（分，<=0）, synonyms: [绩效扣减, 扣款, 扣减金额]}
+  - {name: perf_adjustment_amount, entity: performance_snapshot, expression: "SUM(adjustment_fen)", unit: money, description: 绩效调整合计（分，>=0）, synonyms: [绩效调整, 调整金额]}
+
+  # ---- 工资域 ----
+  - {name: gross_pay_amount, entity: payroll_statement, expression: "SUM(gross_pay_fen)", unit: money, description: 应发工资合计（分）= 底薪 + 绩效 + 调整, synonyms: [应发工资, 工资总额, 应发薪资]}
+  - {name: corrected_pay_amount, entity: payroll_statement, expression: "SUM(COALESCE(corrected_pay_fen, gross_pay_fen))", unit: money, description: 更正后应发工资（分，未更正按应发计）, synonyms: [更正后应发, 实际应发工资]}
+  - {name: base_salary_amount, entity: payroll_statement, expression: "SUM(base_salary_fen)", unit: money, description: 底薪合计（分）, synonyms: [底薪, 基本工资]}
+  - {name: performance_pay_amount, entity: payroll_statement, expression: "SUM(performance_fen)", unit: money, description: 绩效工资合计（分）, synonyms: [绩效工资, 工资绩效]}
+  - {name: payroll_adjustment_amount, entity: payroll_statement, expression: "SUM(adjustment_fen)", unit: money, description: 工资调整合计（分，发放前审批调整）, synonyms: [工资调整, 薪资调整]}
+  - {name: paid_pay_amount, entity: payroll_statement, expression: "SUM(gross_pay_fen) FILTER (WHERE status = 'PAID')", unit: money, description: 已发放工资合计（分）, synonyms: [已发工资, 实发工资总额, 已发放工资]}
+  - {name: payroll_statement_count, entity: payroll_statement, expression: "COUNT(*)", unit: count, description: 工资单数, synonyms: [工资单数, 工资单数量]}
+  - {name: paid_payroll_statement_count, entity: payroll_statement, expression: "COUNT(*) FILTER (WHERE status = 'PAID')", unit: count, description: 已发放工资单数, synonyms: [已发放工资单数]}
+
+  # ---- 费用域 ----
+  - {name: approved_expense_amount, entity: expense, expression: "SUM(amount_fen) FILTER (WHERE status = 'APPROVED')", unit: money, description: 已审批费用金额（分，仅 APPROVED 计入损益）, synonyms: [费用金额, 已审批费用, 费用合计, 开支]}
+  - {name: expense_count, entity: expense, expression: "COUNT(*)", unit: count, description: 费用单数, synonyms: [费用单数, 费用笔数]}
+
+  # ---- 财务流水域（T35 总账：收入 / 支出 / 净额）----
+  - {name: finance_income_amount, entity: finance_transaction, expression: "SUM(amount_fen) FILTER (WHERE tx_type = 'INCOME')", unit: money, description: 收入合计（分，仅 INCOME 流水）, synonyms: [收入, 营收, 进账, 收入合计, 一共收了多少]}
+  - {name: finance_expense_amount, entity: finance_transaction, expression: "-SUM(amount_fen) FILTER (WHERE tx_type = 'EXPENSE')", unit: money, description: 支出合计（分，流水记负数，此处取正展示）, synonyms: [支出, 花销, 开销, 成本支出, 一共花了多少]}
+  - {name: finance_net_amount, entity: finance_transaction, expression: "SUM(amount_fen)", unit: money, description: 净额（分，收入 + 支出 + 调整的代数和，与总账净额口径一致）, synonyms: [净额, 净利润, 盈亏, 结余, 净收入]}
+
+  # ---- 合同域 ----
+  - {name: contract_count, entity: contract, expression: "COUNT(*)", unit: count, description: 合同总数, synonyms: [合同数, 合同数量, 签约数]}
+  - {name: effective_contract_count, entity: contract, expression: "COUNT(*) FILTER (WHERE status = 'EFFECTIVE')", unit: count, description: 生效合同数, synonyms: [生效合同数, 有效合同数, 在履合同数]}
+
+# ---------------------------------------------------------------------------
+# 业务术语（glossary）：模型必须遵守的口径定义；命中术语时定义注入上下文
+# ---------------------------------------------------------------------------
+glossary:
+
+  - term: 销量
+    definition: 默认指「确认销量」，即 sales_confirmations 表经理确认后的正式口径（指标 confirmed_sales_boxes / confirmed_sales_amount）。巡访上报（visit_sales_lines.reported_boxes）只是业务员上报值，经理确认前不算正式销量，除非用户明确说「上报销量」。
+    related_metrics: [confirmed_sales_boxes, confirmed_sales_amount, reported_sales_boxes]
+
+  - term: 销售额
+    definition: 同「销量」的正式口径，取 sales_confirmations.amount_fen 求和；单位分，展示时除以 100 转元。
+    related_metrics: [confirmed_sales_amount]
+
+  - term: 毛利
+    definition: 本系统无成本明细表，参考毛利为估算口径 = 确认销售额 − 确认箱数 × SKU 参考进价（skus.purchase_price_fen）。回答毛利类问题时必须声明这是估算口径。
+    related_metrics: [confirmed_sales_amount, confirmed_sales_boxes]
+
+  - term: 金额单位
+    definition: 数据库所有金额列均为 BIGINT「分」（字段名 *_fen），语义层 unit=money 的指标返回分，展示层统一除以 100 转元，禁止在 SQL 里用 float 处理金额。
+    related_metrics: []
+
+  - term: 有效巡访
+    definition: visit_records 中 status='RECOGNIZED'（经理判定计入）或 validity='VALID'（系统裁决有效）的记录。督导跟访（source='SUPERVISION'）不计入业务员覆盖率类指标。
+    related_metrics: [valid_visit_count, valid_visit_rate]
+
+  - term: 陈列达标
+    definition: visit_records.display_met = true，即陈列占比 display_pct >= 合同固化阈值 display_threshold_pct。达标率分母只算有判定（display_met 非空）的巡访记录。
+    related_metrics: [display_met_count, display_met_rate]
+
+  - term: 在店冰柜
+    definition: freezer_assets 当前状态为 DEPLOYED（已投放）或 PENDING_PICKUP（待撤回）且绑定商家（current_merchant_id 非空）的冰柜。历史投放/撤回看 freezer_movements 流水。
+    related_metrics: [in_store_freezer_count, deployed_freezer_count]
+
+  - term: 应发工资
+    definition: payroll_statements.gross_pay_fen = 底薪 + 绩效工资 + 发放前审批调整；PAID 后金额固化，差异走更正单体现在 corrected_pay_fen。查「实际应发」用 corrected_pay_amount 指标。
+    related_metrics: [gross_pay_amount, corrected_pay_amount]
+
+  - term: 绩效净额
+    definition: performance_monthly_snapshots.net_performance_fen = 新签提成 + 巡访奖励 + 销量提成 + 活动奖励 + 调整 − 扣减；快照 CONFIRMED（经理确认）后不可改，REVIEWED 后供工资单引用。
+    related_metrics: [net_performance_amount]
+
+  - term: 业务月
+    definition: period_month 为 char(7) 字符串，格式 YYYY-MM，按 Asia/Shanghai 时区划分；工资单/绩效快照/费用归属月都用它，不是日期类型。
+    related_metrics: []
+
+  - term: 生效合同
+    definition: contracts.status = 'EFFECTIVE'。主流程：DRAFT → PENDING_APPROVAL → APPROVED → EFFECTIVE；终止后 TERMINATED 不算生效。
+    related_metrics: [effective_contract_count, contract_count]
+
+  - term: 费用口径
+    definition: expenses 仅 status='APPROVED' 的费用计入损益；PENDING_APPROVAL / REJECTED 不计。
+    related_metrics: [approved_expense_amount]
+
+  - term: 数据集隔离
+    definition: 除 freezer_movements 外所有业务表带 dataset_type（PRODUCTION 正式 / DEMO 演示）+ dataset_id 列，任何查询必须按当前会话数据集过滤，禁止跨数据集混查。
+    related_metrics: []
+
+  - term: 行级数据范围
+    definition: 业务员/经理按 user_region_brand_auths 授权的区域/品牌过滤（经 merchant 的 region_id/brand_id）；工资/绩效类数据非财务角色仅可见本人（user_id = 当前用户）。
+    related_metrics: []

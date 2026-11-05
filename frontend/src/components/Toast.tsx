@@ -1,4 +1,7 @@
-/** 通用 Toast（极简：栈式、3s 自动消失）。 */
+/** 通用 Toast（极简：栈式、3s 自动消失）。
+ *
+ * UI 迭代：改白卡 + 左侧色点 + 柔和阴影，圆角 14px；计时与回调逻辑未动。
+ */
 import { useEffect, useState } from "react";
 
 import { cn } from "../lib/utils";
@@ -12,11 +15,11 @@ export interface ToastItem {
   ttlMs?: number;
 }
 
-const toneClass: Record<ToastTone, string> = {
-  info: "bg-sky-50 text-sky-800 ring-sky-200",
-  success: "bg-emerald-50 text-emerald-800 ring-emerald-200",
-  warning: "bg-amber-50 text-amber-800 ring-amber-200",
-  danger: "bg-rose-50 text-rose-800 ring-rose-200",
+const toneDot: Record<ToastTone, string> = {
+  info: "bg-sky-500",
+  success: "bg-emerald-500",
+  warning: "bg-amber-500",
+  danger: "bg-rose-500",
 };
 
 export interface ToastStackProps {
@@ -29,7 +32,7 @@ export function ToastStack({ items, onDismiss }: ToastStackProps) {
     <div
       role="region"
       aria-label="通知"
-      className="pointer-events-none fixed right-4 bottom-4 z-50 flex flex-col gap-2"
+      className="pointer-events-none fixed right-5 bottom-5 z-50 flex flex-col gap-2"
     >
       {items.map((t) => (
         <ToastView key={t.id} item={t} onDismiss={onDismiss} />
@@ -54,11 +57,12 @@ function ToastView({ item, onDismiss }: { item: ToastItem; onDismiss: (id: strin
     <div
       role="status"
       className={cn(
-        "pointer-events-auto min-w-60 rounded-md px-3 py-2 text-sm shadow-md ring-1 ring-inset",
-        toneClass[tone],
+        "pointer-events-auto flex min-w-[240px] items-start gap-2.5 rounded-[14px] bg-surface px-4 py-3 text-[13px] text-ink-2",
+        "shadow-pop",
       )}
     >
-      {item.message}
+      <span aria-hidden="true" className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", toneDot[tone])} />
+      <span className="leading-5">{item.message}</span>
     </div>
   );
 }

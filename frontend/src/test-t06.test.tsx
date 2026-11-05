@@ -64,29 +64,39 @@ describe("Q028 角色导航", () => {
     // 工资发放能力不在 RM（系统管理员不自动获得，T03 红线）
     expect(to).not.toContain("/finance/payroll");
     expect(to).not.toContain("/admin/users");
+    // 片区经理具备 region.manage：可进片区管理，但不能进主数据/审计
+    expect(to).toContain("/admin/regions");
+    expect(to).not.toContain("/admin/master-data");
   });
 
-  it("FINANCE：含工资/采购/绩效；不含商家/合同/巡访", () => {
+  it("FINANCE：含工资/采购/绩效/冰柜；不含商家/合同/巡访", () => {
     const nav = filterNavByRole("FINANCE", (m) => hasAbility("FINANCE", m));
     const to = nav.map((n) => n.to);
     expect(to).toContain("/finance/payroll");
     expect(to).toContain("/finance/performance");
     expect(to).toContain("/procurement");
+    // 财务负责冰柜购置入库与退押金，需可见台账（与后端 _PROFILE_FINANCE 一致）
+    expect(to).toContain("/assets/freezers");
     // 财务行级：可读采购/绩效/补货；不能写商家/合同/巡访
     expect(to).not.toContain("/merchants");
     expect(to).not.toContain("/contracts");
     expect(to).not.toContain("/visits");
   });
 
-  it("SYSTEM_ADMIN：含全部管理员入口", () => {
+  it("SYSTEM_ADMIN：含全部管理员入口，不含督导跟访（Q042）", () => {
     const nav = filterNavByRole("SYSTEM_ADMIN", (m) => hasAbility("SYSTEM_ADMIN", m));
     const to = nav.map((n) => n.to);
     expect(to).toContain("/admin/users");
+    expect(to).toContain("/admin/regions");
     expect(to).toContain("/admin/master-data");
     expect(to).toContain("/admin/audit");
     expect(to).toContain("/finance/performance");
     // 系统管理员不自动获得工资发放（T03 红线）
     expect(to).not.toContain("/finance/payroll");
+    // 冰柜台账是现场实物视图，系统管理员不参与实物管理（PRD §4.5）
+    expect(to).not.toContain("/assets/freezers");
+    // Q042：督导跟访与整改仅限督导/片区经理，系统管理员无此能力
+    expect(to).not.toContain("/supervision");
   });
 
   it("SUPERVISOR：含督导整改；不含账号/工资/采购", () => {

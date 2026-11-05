@@ -14,11 +14,16 @@
 中"RESERVED"在 T02 已落地为 IN_TRANSIT，以 T02 实际为准）：
 
 - 合同   CONTRACT       DRAFT/PENDING_APPROVAL/ACTIVE/EXPIRED/TERMINATED
-- 冰柜   FREEZER        IN_STOCK/IN_TRANSIT/DEPLOYED/UNDER_MAINTENANCE/SCRAPPED
-- 补货   REPLENISHMENT  REQUESTED/CONFIRMED/IN_TRANSIT/DELIVERED/OVERDUE/CANCELLED
-- 整改   SUPERVISION_ISSUE  OPEN/IN_PROGRESS/RESOLVED/OVERDUE（§4.8 PRD 文本
-        描述 OPEN→IN_PROGRESS→SUBMITTED→VERIFIED→CLOSED 与 T02 实际枚举不一致，
-        以 T02 实际为准；VERIFIED/CLOSED 留待后续按业务细则扩展，留 TODO）
+- 冰柜   FREEZER        IN_STOCK/RESERVED/DEPLOYED/PENDING_PICKUP/
+                        PENDING_ACCEPTANCE/REPAIRING/SCRAPPED
+                        （T10 v1.2；另保留 IN_TRANSIT/UNDER_MAINTENANCE 旧值兼容）
+- 补货   REPLENISHMENT  T17 起 DRAFT/SUBMITTED/CONFIRMED/PARTIALLY_FULFILLED/
+         FULFILLED/CLOSED/CANCELLED（PRD §4.9）；旧 REQUESTED/IN_TRANSIT/
+         DELIVERED/OVERDUE 保留兼容历史台账
+- 旧整改 SUPERVISION_ISSUE  OPEN/IN_PROGRESS/RESOLVED/OVERDUE（T03 预留表，首版
+        无 service 写入；保留兼容）
+- 整改   RECTIFICATION OPEN→IN_PROGRESS→SUBMITTED→VERIFIED→CLOSED（T16 / §4.8
+        正式五态；VERIFIED/CLOSED 必须由非整改提交人完成，职责分离在 Service 强制）
 - 采购   PROCUREMENT    REQUESTED/APPROVED/ORDERED/RECEIVED/CANCELLED
 - 绩效   PERFORMANCE     DRAFT/REVIEWED/APPROVED
 - 工资   PAYROLL         DRAFT/REVIEWED/APPROVED/PAID
@@ -35,9 +40,22 @@ DOMAIN_CONTRACT = "CONTRACT"
 DOMAIN_FREEZER = "FREEZER"
 DOMAIN_REPLENISHMENT = "REPLENISHMENT"
 DOMAIN_SUPERVISION_ISSUE = "SUPERVISION_ISSUE"
+# T16（PRD §4.8）：整改单五态正式状态机
+DOMAIN_RECTIFICATION = "RECTIFICATION"
 DOMAIN_PROCUREMENT = "PROCUREMENT"
+# T18：采购单/厂商供货正式状态机（旧 DOMAIN_PROCUREMENT 图为 v12 预留台账词，
+# 新业务一律使用 DOMAIN_PURCHASE）
+DOMAIN_PURCHASE = "PURCHASE"
 DOMAIN_PERFORMANCE = "PERFORMANCE"
+# T19：月度绩效快照头独立状态图（旧 performance_records 用 DOMAIN_PERFORMANCE）
+DOMAIN_PERFORMANCE_SNAPSHOT = "PERFORMANCE_SNAPSHOT"
 DOMAIN_PAYROLL = "PAYROLL"
+# T20：费用单独立状态图（提交→审批通过/驳回；未审批不进损益）
+DOMAIN_EXPENSE = "EXPENSE"
+# T20：工资单头复用 PAYROLL 图；为语义清晰保留别名
+DOMAIN_PAYROLL_STATEMENT = DOMAIN_PAYROLL
+# T21：风险项状态图（OPEN→ACKNOWLEDGED→CLOSED；允许 OPEN 直接 CLOSED）
+DOMAIN_RISK = "RISK"
 
 
 @dataclass(frozen=True)
@@ -70,56 +88,121 @@ class _DomainGraph:
 # ===== 各域合法迁移图 =====
 
 _CONTRACT = _DomainGraph(
+    # T09（PRD §4.4/§4.6）扩展为申请-审批-版本生命周期；
+    # 保留旧 ACTIVE/EXPIRED 兼容 T03 台账语义。
     name=DOMAIN_CONTRACT,
-    states=frozenset({"DRAFT", "PENDING_APPROVAL", "ACTIVE", "EXPIRED", "TERMINATED"}),
+    states=frozenset(
+        {
+            "DRAFT",
+            "PENDING_APPROVAL",
+            "RETURNED",
+            "REJECTED",
+            "APPROVED",
+            "EFFECTIVE",
+            "TERMINATION_PENDING",
+            "TERMINATED",
+            "ACTIVE",
+            "EXPIRED",
+        }
+    ),
     transitions=frozenset(
         {
-            _Transition("DRAFT", "PENDING_APPROVAL"),  # 提交审批
-            _Transition("DRAFT", "TERMINATED"),        # 起草中直接废止
-            _Transition("PENDING_APPROVAL", "ACTIVE"), # 审批通过（合同生效）
-            _Transition("PENDING_APPROVAL", "DRAFT"),  # 退回补充材料
-            _Transition("PENDING_APPROVAL", "TERMINATED"),  # 审批驳回（直接终止）
-            _Transition("ACTIVE", "EXPIRED"),          # 到期自动失效
-            _Transition("ACTIVE", "TERMINATED"),       # 主动终止
+            _Transition("DRAFT", "PENDING_APPROVAL"),        # 提交审批
+            _Transition("DRAFT", "TERMINATED"),              # 起草中直接废止
+            _Transition("PENDING_APPROVAL", "APPROVED"),     # 审批通过
+            _Transition("PENDING_APPROVAL", "RETURNED"),     # 退回补充材料
+            _Transition("PENDING_APPROVAL", "REJECTED"),     # 审批拒绝
+            _Transition("PENDING_APPROVAL", "TERMINATED"),   # 兼容旧口径：驳回直接终止
+            _Transition("RETURNED", "PENDING_APPROVAL"),     # 补充后重新提交
+            _Transition("RETURNED", "DRAFT"),                # 退回后转草稿编辑
+            _Transition("REJECTED", "DRAFT"),                # 拒绝后可改草稿重新申请
+            _Transition("APPROVED", "EFFECTIVE"),            # 批准后生效（固化 v1）
+            _Transition("PENDING_APPROVAL", "EFFECTIVE"),    # 审批通过即生效
+            _Transition("EFFECTIVE", "TERMINATION_PENDING"), # 发起终止申请
+            _Transition("TERMINATION_PENDING", "TERMINATED"),# 终止批准（记录保留）
+            _Transition("TERMINATION_PENDING", "EFFECTIVE"), # 终止驳回，恢复生效
+            _Transition("ACTIVE", "EXPIRED"),                # 到期自动失效
+            _Transition("ACTIVE", "TERMINATED"),             # 主动终止
         }
     ),
 )
 
 _FREEZER = _DomainGraph(
+    # T10（PRD §4.5 v1.2）：
+    #   IN_STOCK → RESERVED → DEPLOYED → PENDING_PICKUP → PENDING_ACCEPTANCE
+    #   → IN_STOCK（验收入库，可用库存 +1）
+    #                         ↘ REPAIRING → IN_STOCK / SCRAPPED（报废不可逆）
+    # 另保留 IN_TRANSIT / UNDER_MAINTENANCE 旧状态及其迁移，兼容 T02 台账历史数据；
+    # 新业务流程只写 v1.2 状态（夹具导入时历史词经映射转换）。
     name=DOMAIN_FREEZER,
-    states=frozenset({"IN_STOCK", "IN_TRANSIT", "DEPLOYED", "UNDER_MAINTENANCE", "SCRAPPED"}),
+    states=frozenset(
+        {
+            "IN_STOCK",
+            "RESERVED",
+            "DEPLOYED",
+            "PENDING_PICKUP",
+            "PENDING_ACCEPTANCE",
+            "REPAIRING",
+            "SCRAPPED",
+            "IN_TRANSIT",            # 旧台账词，新流程不写
+            "UNDER_MAINTENANCE",     # 旧台账词，新流程不写
+        }
+    ),
     transitions=frozenset(
         {
-            _Transition("IN_STOCK", "IN_TRANSIT"),         # 出库在途
-            _Transition("IN_STOCK", "UNDER_MAINTENANCE"),  # 库存即送修
-            _Transition("IN_STOCK", "SCRAPPED"),           # 库存报废
-            _Transition("IN_TRANSIT", "DEPLOYED"),         # 投放完成
-            _Transition("IN_TRANSIT", "IN_STOCK"),         # 撤柜在途回到在库
-            _Transition("IN_TRANSIT", "UNDER_MAINTENANCE"),# 撤柜后送修
-            _Transition("DEPLOYED", "IN_TRANSIT"),         # 撤柜
-            _Transition("DEPLOYED", "UNDER_MAINTENANCE"),  # 在投期间送修
-            _Transition("DEPLOYED", "SCRAPPED"),           # 在投期间报废
-            _Transition("UNDER_MAINTENANCE", "IN_STOCK"),  # 修好归库
-            _Transition("UNDER_MAINTENANCE", "SCRAPPED"),  # 维修报废
+            # —— v1.2 主链路 ——
+            _Transition("IN_STOCK", "RESERVED"),            # 建投放单/出库前预留
+            _Transition("RESERVED", "DEPLOYED"),            # 现场投放完成
+            _Transition("RESERVED", "IN_STOCK"),            # 取消预留
+            _Transition("DEPLOYED", "PENDING_PICKUP"),      # 终止审批→建撤柜任务
+            _Transition("PENDING_PICKUP", "PENDING_ACCEPTANCE"),  # 现场回收（≠在库）
+            _Transition("PENDING_ACCEPTANCE", "IN_STOCK"),  # 验收入库（库存 +1）
+            _Transition("PENDING_ACCEPTANCE", "REPAIRING"), # 验收判故障→维修
+            _Transition("PENDING_ACCEPTANCE", "SCRAPPED"),  # 验收判报废（不可逆）
+            _Transition("IN_STOCK", "REPAIRING"),           # 在库发现故障送修
+            _Transition("REPAIRING", "IN_STOCK"),           # 修复归库
+            _Transition("REPAIRING", "SCRAPPED"),           # 维修无果报废
+            # —— T02 旧台账兼容（历史数据/旧测试；新 Service 不主动使用）——
+            _Transition("IN_STOCK", "IN_TRANSIT"),
+            _Transition("IN_STOCK", "UNDER_MAINTENANCE"),
+            _Transition("IN_TRANSIT", "DEPLOYED"),
+            _Transition("IN_TRANSIT", "IN_STOCK"),
+            _Transition("IN_TRANSIT", "UNDER_MAINTENANCE"),
+            _Transition("DEPLOYED", "IN_TRANSIT"),
+            _Transition("DEPLOYED", "UNDER_MAINTENANCE"),
+            _Transition("DEPLOYED", "SCRAPPED"),
+            _Transition("UNDER_MAINTENANCE", "IN_STOCK"),
+            _Transition("UNDER_MAINTENANCE", "SCRAPPED"),
         }
     ),
 )
 
 _REPLENISHMENT = _DomainGraph(
+    # T17 起以 PRD §4.9 为准：
+    # DRAFT → SUBMITTED → CONFIRMED → PARTIALLY_FULFILLED / FULFILLED → CLOSED；
+    # SUBMITTED/CONFIRMED/PARTIALLY_FULFILLED 可 CANCELLED（取消必须留原因，Q093，
+    # 由 Service 强制）。REQUESTED/IN_TRANSIT/DELIVERED/OVERDUE 为旧台账词，保留在
+    # states 中兼容历史数据，新流程不再迁入。
     name=DOMAIN_REPLENISHMENT,
     states=frozenset(
-        {"REQUESTED", "CONFIRMED", "IN_TRANSIT", "DELIVERED", "OVERDUE", "CANCELLED"}
+        {
+            "DRAFT", "SUBMITTED", "CONFIRMED",
+            "PARTIALLY_FULFILLED", "FULFILLED", "CLOSED", "CANCELLED",
+            "REQUESTED", "IN_TRANSIT", "DELIVERED", "OVERDUE",
+        }
     ),
     transitions=frozenset(
         {
-            _Transition("REQUESTED", "CONFIRMED"),
-            _Transition("REQUESTED", "CANCELLED"),
-            _Transition("CONFIRMED", "IN_TRANSIT"),
+            _Transition("DRAFT", "SUBMITTED"),
+            _Transition("SUBMITTED", "CONFIRMED"),
+            _Transition("SUBMITTED", "CANCELLED"),
+            _Transition("CONFIRMED", "PARTIALLY_FULFILLED"),
+            _Transition("CONFIRMED", "FULFILLED"),
             _Transition("CONFIRMED", "CANCELLED"),
-            _Transition("IN_TRANSIT", "DELIVERED"),
-            _Transition("IN_TRANSIT", "OVERDUE"),  # 到货逾期
-            _Transition("OVERDUE", "DELIVERED"),
-            _Transition("OVERDUE", "CANCELLED"),
+            _Transition("PARTIALLY_FULFILLED", "PARTIALLY_FULFILLED"),  # 多次部分履约
+            _Transition("PARTIALLY_FULFILLED", "FULFILLED"),
+            _Transition("PARTIALLY_FULFILLED", "CANCELLED"),
+            _Transition("FULFILLED", "CLOSED"),
         }
     ),
 )
@@ -140,6 +223,20 @@ _SUPERVISION_ISSUE = _DomainGraph(
     ),
 )
 
+# T16（PRD §4.8）：整改单五态严格顺序，不允许跳级/回退
+_RECTIFICATION = _DomainGraph(
+    name=DOMAIN_RECTIFICATION,
+    states=frozenset({"OPEN", "IN_PROGRESS", "SUBMITTED", "VERIFIED", "CLOSED"}),
+    transitions=frozenset(
+        {
+            _Transition("OPEN", "IN_PROGRESS"),
+            _Transition("IN_PROGRESS", "SUBMITTED"),
+            _Transition("SUBMITTED", "VERIFIED"),
+            _Transition("VERIFIED", "CLOSED"),
+        }
+    ),
+)
+
 _PROCUREMENT = _DomainGraph(
     name=DOMAIN_PROCUREMENT,
     states=frozenset({"REQUESTED", "APPROVED", "ORDERED", "RECEIVED", "CANCELLED"}),
@@ -155,6 +252,33 @@ _PROCUREMENT = _DomainGraph(
     ),
 )
 
+_PURCHASE = _DomainGraph(
+    # T18（PRD §4.9 / §5.1）：内部 DRAFT→CONFIRMED；厂商对已确认单
+    # SUPPLIER_CONFIRMED（供货确认，非付款/非入库）或 SUPPLY_REJECTED（驳回）；
+    # 内部收货 RECEIVED；DRAFT/CONFIRMED/SUPPLIER_CONFIRMED 可 CANCELLED（留原因）。
+    name=DOMAIN_PURCHASE,
+    states=frozenset(
+        {
+            "DRAFT", "CONFIRMED", "SUPPLIER_CONFIRMED",
+            "SUPPLY_REJECTED", "RECEIVED", "CANCELLED",
+        }
+    ),
+    transitions=frozenset(
+        {
+            _Transition("DRAFT", "CONFIRMED"),
+            _Transition("DRAFT", "CANCELLED"),
+            _Transition("CONFIRMED", "SUPPLIER_CONFIRMED"),
+            _Transition("CONFIRMED", "SUPPLY_REJECTED"),
+            _Transition("CONFIRMED", "CANCELLED"),
+            # 厂商重新确认（先驳回后再协商）：仅允许从驳回态重新确认
+            _Transition("SUPPLY_REJECTED", "SUPPLIER_CONFIRMED"),
+            _Transition("SUPPLIER_CONFIRMED", "RECEIVED"),
+            _Transition("SUPPLIER_CONFIRMED", "CANCELLED"),
+        }
+    ),
+)
+
+
 _PERFORMANCE = _DomainGraph(
     name=DOMAIN_PERFORMANCE,
     states=frozenset({"DRAFT", "REVIEWED", "APPROVED"}),
@@ -165,6 +289,18 @@ _PERFORMANCE = _DomainGraph(
             _Transition("REVIEWED", "DRAFT"),  # 复核退回
         }
     ),
+)
+
+# T19 月度绩效快照：月末冻结(DRAFT)→经理确认(CONFIRMED)→财务复核(REVIEWED)；
+# 复核可退回经理确认；确认/复核后原行冻结，只能追加更正单。
+_PERFORMANCE_SNAPSHOT = _DomainGraph(
+    name=DOMAIN_PERFORMANCE_SNAPSHOT,
+    states=frozenset({"DRAFT", "CONFIRMED", "REVIEWED"}),
+    transitions=frozenset({
+        _Transition("DRAFT", "CONFIRMED"),
+        _Transition("CONFIRMED", "REVIEWED"),
+        _Transition("REVIEWED", "CONFIRMED"),   # 财务退回经理补充依据
+    }),
 )
 
 _PAYROLL = _DomainGraph(
@@ -180,15 +316,47 @@ _PAYROLL = _DomainGraph(
     ),
 )
 
+# T20 费用：提交待审批 → 通过 / 驳回（无中间编辑；REJECTED 终态，需重新录入）
+_EXPENSE = _DomainGraph(
+    name=DOMAIN_EXPENSE,
+    states=frozenset({"PENDING_APPROVAL", "APPROVED", "REJECTED"}),
+    transitions=frozenset(
+        {
+            _Transition("PENDING_APPROVAL", "APPROVED"),
+            _Transition("PENDING_APPROVAL", "REJECTED"),
+        }
+    ),
+)
+
+
+# T21 风险项（PRD §4.11）：新生成 OPEN；经理确认 ACKNOWLEDGED；处置完成 CLOSED。
+# 关闭必须填写处理结果（在 RiskService 强制），记录不物理删除。
+_RISK = _DomainGraph(
+    name=DOMAIN_RISK,
+    states=frozenset({"OPEN", "ACKNOWLEDGED", "CLOSED"}),
+    transitions=frozenset(
+        {
+            _Transition("OPEN", "ACKNOWLEDGED"),
+            _Transition("OPEN", "CLOSED"),          # 直接处置完成
+            _Transition("ACKNOWLEDGED", "CLOSED"),
+        }
+    ),
+)
+
 
 _GRAPH_BY_DOMAIN: dict[str, _DomainGraph] = {
     DOMAIN_CONTRACT: _CONTRACT,
     DOMAIN_FREEZER: _FREEZER,
     DOMAIN_REPLENISHMENT: _REPLENISHMENT,
     DOMAIN_SUPERVISION_ISSUE: _SUPERVISION_ISSUE,
+    DOMAIN_RECTIFICATION: _RECTIFICATION,
     DOMAIN_PROCUREMENT: _PROCUREMENT,
+    DOMAIN_PURCHASE: _PURCHASE,
     DOMAIN_PERFORMANCE: _PERFORMANCE,
+    DOMAIN_PERFORMANCE_SNAPSHOT: _PERFORMANCE_SNAPSHOT,
     DOMAIN_PAYROLL: _PAYROLL,
+    DOMAIN_EXPENSE: _EXPENSE,
+    DOMAIN_RISK: _RISK,
 }
 
 

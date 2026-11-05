@@ -59,3 +59,120 @@ jobs:
         run: docker compose -f infra/docker-compose.yml config --quiet
       - name: Validate test traceability
         run: python scripts/validate_traceability.py
+      - name: Validate acceptance matrix (A1-A28 + 上线门禁)
+        run: python scripts/validate_acceptance_matrix.py
+
+  # T30 上线门禁：真实 PG16 + PostGIS 跑 UAT 全链路与迁移回滚，并在真实 Docker 上做
+  # 全新环境部署冒烟。任一失败即阻止上线（M5 里程碑的可部署/可验收/可回滚标准）。
+  uat-gate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: qinshuang
+          POSTGRES_PASSWORD: change-me-strong-password
+          POSTGRES_DB: qinshuang_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U qinshuang -d qinshuang_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync
+
+      - name: Q176 迁移/回滚演练（空库 upgrade → 幂等 → downgrade base → 再 upgrade）
+        working-directory: backend
+        run: uv run pytest tests/test_t30_deployment.py -q -k q176
+
+      - name: Q174/Q175/Q186 UAT 全链路（A1-A28 业务链 + 事务一致性）
+        run: uv run --project backend python scripts/uat_full_chain.py --report docs/uat/uat-run.json
+
+      - name: Q177 全新环境部署冒烟（生产镜像 + 全新库 + 健康检查 + 引导管理员）
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg2://qinshuang:change-me-strong-password@localhost:5432/qinshuang_test
+        run: |
+          docker build -t qinshuang-backend:t30 -f backend/Dockerfile backend
+          # 无 MinIO 时对象存储仅延迟连接，不影响本冒烟的核心断言
+          uv run --project backend python scripts/deploy_smoke.py \
+            --image qinshuang-backend:t30 --report docs/ops/deploy-smoke.json
+
+      - name: Q178 UAT 签署记录门禁（记录与运行报告一致）
+        working-directory: backend
+        run: uv run pytest tests/test_t30_deployment.py -q -k q178
+
+      - name: Upload 上线门禁产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: t30-release-gates
+          path: |
+            docs/uat/uat-run.json
+            docs/ops/deploy-smoke.json
+            docs/uat/acceptance-matrix.json
+
+  # T29 安全扫描：扫描器版本全部固定；critical/high 必须为 0（例外走 .trivyignore +
+  # 到期日 + 负责人书面审批，见 docs/security/README）
+  security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pip-audit (pinned 2.7.3)
+        working-directory: backend
+        run: |
+          pipx install "pip-audit==2.7.3"
+          uv export --frozen --no-dev -o /tmp/req.txt
+          pip-audit -r /tmp/req.txt --strict --disable-pip
+          # 闸门：critical/high 为 0（pip-audit 无漏洞时退出码 0）
+
+      - name: Trivy IaC + image (pinned v0.56.2)
+        env:
+          TRIVY_VERSION: v0.56.2
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/${TRIVY_VERSION}/contrib/install.sh | sh -s -- -b /tmp/bin ${TRIVY_VERSION}
+          # IaC（compose / Dockerfile），critical/high 直接失败
+          /tmp/bin/trivy config --severity CRITICAL,HIGH --exit-code 1 --ignorefile .trivyignore.yaml infra backend/Dockerfile
+          # 构建并扫描镜像
+          docker build -t qinshuang-backend:ci -f backend/Dockerfile backend
+          /tmp/bin/trivy image --severity CRITICAL,HIGH --exit-code 1 --ignore-unfixed qinshuang-backend:ci
+
+      - name: Checkov IaC (pinned 3.2.269)
+        run: |
+          pipx install "checkov==3.2.269"
+          checkov --framework dockerfile -f backend/Dockerfile --soft-fail-on LOW,MEDIUM --hard-fail-on HIGH,CRITICAL
+
+  # T29 性能基准：仅在配置了 Q169_DSN（自托管 runner/定时流水线）时跑真实 PG16，
+  # 否则跳过；固化报告 docs/performance/q169-benchmark.json 始终受门禁测试约束。
+  performance-q169:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Run fixed-spec benchmark against real PG16
+        working-directory: backend
+        run: |
+          uv sync
+          uv run python scripts/perf_benchmark.py --report ../docs/performance/q169-benchmark.json
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: q169-benchmark
+          path: docs/performance/q169-benchmark.json

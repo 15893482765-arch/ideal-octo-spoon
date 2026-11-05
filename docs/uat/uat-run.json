@@ -1,0 +1,411 @@
+{
+  "schema": "qinshuang-uat-run/v1",
+  "card": "T30",
+  "generated_at": "2026-10-15T10:23:53.622209+00:00",
+  "passed": 16,
+  "total": 16,
+  "failed_steps": [],
+  "steps": [
+    {
+      "step_id": "A1_admin_account",
+      "title": "管理员建号 + 无自助注册 + 首次登录强制改密",
+      "prd": "A1 / §2.2 §2.4",
+      "kind": "test",
+      "nodes": [
+        "tests/test_auth_rbac.py::test_q010_no_register_route",
+        "tests/test_auth_rbac.py::test_q011_first_time_change_password",
+        "tests/test_auth_rbac.py::test_q012_role_module_matrix"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 3.59,
+      "tail": [
+        "...                                                                      [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "3 passed, 1 warning in 2.26s"
+      ]
+    },
+    {
+      "step_id": "A20_excel_import",
+      "title": "Excel 主数据导入：预检、幂等、密码列忽略、厂商待激活",
+      "prd": "A20-A23 / §3",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t30_master_import.py::test_q174_a20_preflight_blocks_unknown_region",
+        "tests/test_t30_master_import.py::test_q174_a20_preflight_blocks_duplicate_login_and_sku",
+        "tests/test_t30_master_import.py::test_q174_a20_happy_path_batch_succeeds_and_traceable",
+        "tests/test_t30_master_import.py::test_q174_a21_same_file_hash_is_idempotent",
+        "tests/test_t30_master_import.py::test_q174_a22_password_column_ignored_and_never_persisted",
+        "tests/test_t30_master_import.py::test_q174_a23_supplier_import_is_pending_activation"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 3.08,
+      "tail": [
+        "......                                                                   [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "6 passed, 1 warning in 1.74s"
+      ]
+    },
+    {
+      "step_id": "A2_merchant_contract",
+      "title": "商家建档 + 合同生效（起草→提交→批准）+ 行级范围不可越权",
+      "prd": "A2 A3 / §4.1 §4.2",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t09_contract.py::test_q043_freezer_requires_effective_contract",
+        "tests/test_auth_rbac.py::test_q013_sales_rep_cross_region_forbidden",
+        "tests/test_t08_merchant.py::test_q039_sales_rep_only_assigned"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 2.84,
+      "tail": [
+        "...                                                                      [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "3 passed, 1 warning in 1.45s"
+      ]
+    },
+    {
+      "step_id": "A4_freezer_deploy",
+      "title": "投柜：未生效合同被拒；生效投放写流水、押金收缴",
+      "prd": "A3 A4 A28 / §4.4",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t10_freezer.py::test_q048_deploy_requires_effective_contract",
+        "tests/test_t10_freezer.py::test_q049_deployment_writes_movements"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 2.36,
+      "tail": [
+        "..                                                                       [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "2 passed, 1 warning in 1.07s"
+      ]
+    },
+    {
+      "step_id": "A5_schedule_visit",
+      "title": "周排班发布 + 巡访提交（近点/照片/陈列阈值/多 SKU）",
+      "prd": "A5 A6 / §4.6 §4.7",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t13_schedule_conflict.py::test_q071_one_conflict_whole_batch_zero_writes",
+        "tests/test_t11_visit.py::test_q055_visit_within_200m_is_valid",
+        "tests/test_t11_visit.py::test_q056_visit_beyond_200m_is_abnormal_pending",
+        "tests/test_t12_visit_submission.py::test_q062_display_50pct_meets_threshold",
+        "tests/test_t12_visit_submission.py::test_q063_multi_sku_sales_precision",
+        "tests/test_t12_visit_submission.py::test_q065_replay_same_idempotency_key_does_not_duplicate"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 2.82,
+      "tail": [
+        "......                                                                   [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "6 passed, 1 warning in 1.50s"
+      ]
+    },
+    {
+      "step_id": "A11_replenishment_procurement",
+      "title": "巡访联动补货 → 部分满足/超送拒绝 → 采购单",
+      "prd": "A11 A24 / §4.9 §4.10",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t17_replenishment.py::test_q090_partial_fulfillment_keeps_balance",
+        "tests/test_t17_replenishment.py::test_q091_over_fulfillment_rejected_zero_write",
+        "tests/test_t17_replenishment.py::test_q092_duplicate_callback_idempotent",
+        "tests/test_t18_procurement.py::test_t18_demo_sku_rejected_from_production_po"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 2.64,
+      "tail": [
+        "....                                                                     [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "4 passed, 1 warning in 1.24s"
+      ]
+    },
+    {
+      "step_id": "A9_recall_acceptance",
+      "title": "合同终止 → 撤柜 → 回收待验收不入库 → 验收入库 +1",
+      "prd": "A9 / §4.4 §4.5",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t09_contract.py::test_q047_termination_keeps_state_until_approved",
+        "tests/test_t10_freezer.py::test_q050_pickup_pending_acceptance_does_not_add_stock",
+        "tests/test_t10_freezer.py::test_q051_acceptance_in_stock_increments",
+        "tests/test_t10_freezer.py::test_termination_creates_recall_task"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 2.64,
+      "tail": [
+        "....                                                                     [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "4 passed, 1 warning in 1.34s"
+      ]
+    },
+    {
+      "step_id": "A12_performance_payroll",
+      "title": "绩效（生效合同/有效巡访/确认销量）+ 工资发放与更正",
+      "prd": "A12 A13 / §4.11 §4.12",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t19_performance.py::test_q102_only_effective_contracts",
+        "tests/test_t19_performance.py::test_q103_only_valid_visits",
+        "tests/test_t19_performance.py::test_q104_only_confirmed_sales",
+        "tests/test_t19_performance.py::test_q108_snapshot_lines_traceable",
+        "tests/test_t20_payroll.py::test_q109_payroll_composition_exact",
+        "tests/test_t20_payroll.py::test_q110_admin_disburse_forbidden",
+        "tests/test_t20_payroll.py::test_q112_paid_statement_immutable",
+        "tests/test_t20_payroll.py::test_q113_correction_after_paid"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 3.3,
+      "tail": [
+        "........                                                                 [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "8 passed, 1 warning in 1.97s"
+      ]
+    },
+    {
+      "step_id": "A19_report_export",
+      "title": "指标/风险/导出：行列权限、签名链接过期、演示数据隔离",
+      "prd": "A19 A24 / §5 §6",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t21_metrics_risk_export.py::test_q115_ten_metrics_known_data",
+        "tests/test_t21_metrics_risk_export.py::test_q117_demo_isolated_and_scope_required",
+        "tests/test_t21_metrics_risk_export.py::test_q119_export_permission",
+        "tests/test_t21_metrics_risk_export.py::test_q120_export_link_expiry",
+        "tests/test_t29_storage_backup.py::test_q168_dataset_whitelist_blocks_demo_file_from_production_path"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 3.17,
+      "tail": [
+        ".....                                                                    [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "5 passed, 1 warning in 1.82s"
+      ]
+    },
+    {
+      "step_id": "A16_mcp",
+      "title": "MCP：只读裁剪 + 写工具预览/幂等 + 厂商字段脱敏",
+      "prd": "A15-A18 / §7",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t23_mcp_read.py::test_q128_sales_rep_reads_only_own",
+        "tests/test_t23_mcp_read.py::test_q130_supplier_redacted_summary",
+        "tests/test_t23_mcp_read.py::test_q133_links_do_not_bypass_row_scope",
+        "tests/test_t24_mcp_write.py::test_q135_first_write_call_only_returns_preview_and_does_not_execute",
+        "tests/test_t24_mcp_write.py::test_q139_same_idempotency_key_replays_first_result",
+        "tests/test_t26_ai_audit_resilience.py::test_q152_timeout_retries_once_then_degrades_no_500"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 3.52,
+      "tail": [
+        "......                                                                   [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "6 passed, 1 warning in 1.87s"
+      ]
+    },
+    {
+      "step_id": "A25_risk_closure",
+      "title": "风险闭环：7天未访入清单置顶 → 补访判定关闭 → 留审计不删除",
+      "prd": "A25 / §6.3",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t21_metrics_risk_export.py::test_q184_risk_rules_idempotent_todo_and_degrade",
+        "tests/test_t21_metrics_risk_export.py::test_q184_rk1_pinned_in_schedule_advice",
+        "tests/test_t27_workbench.py::test_q185_close_risk_via_service_leaves_audit",
+        "tests/test_t30_full_chain_uat.py::test_q174_full_chain_admin_to_deposit_refund"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 3.29,
+      "tail": [
+        "....                                                                     [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "4 passed, 1 warning in 1.94s"
+      ]
+    },
+    {
+      "step_id": "A26_renewal_todo",
+      "title": "合同到期前 30 天续签评估待办（幂等，窗口外不生成）",
+      "prd": "A26 / §4.2",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t09_contract.py::test_q180_renewal_tasks_generated_once_for_both_owners",
+        "tests/test_t09_contract.py::test_q180_no_renewal_outside_window",
+        "tests/test_t09_contract.py::test_q180_renewal_regenerates_after_expiry_change"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 2.53,
+      "tail": [
+        "...                                                                      [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "3 passed, 1 warning in 1.22s"
+      ]
+    },
+    {
+      "step_id": "A27_sample_ledger",
+      "title": "地推样品台账：领用→消耗/归还/缺失平账，成本不进销量，未还提醒",
+      "prd": "A27 / §4.8",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t15_campaign.py::test_q182_sample_ledger_and_return_reminder",
+        "tests/test_t15_campaign.py::test_q182_sample_unbalanced_review_rejected",
+        "tests/test_t15_campaign.py::test_q182_balanced_no_unreturned_no_reminder"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 2.57,
+      "tail": [
+        "...                                                                      [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "3 passed, 1 warning in 1.23s"
+      ]
+    },
+    {
+      "step_id": "A28_deposit_refund",
+      "title": "押金收退：验收后待办 → 财务退款留凭证 → 不入损益、精确到分",
+      "prd": "A28 / §4.4",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t10_freezer.py::test_q181_deposit_collect_refund_flow",
+        "tests/test_t10_freezer.py::test_deposit_refund_cannot_exceed_collected",
+        "tests/test_t10_freezer.py::test_no_deposit_no_refund_task",
+        "tests/test_v12_models.py::test_freezer_deposit_fen_optional_and_nonneg"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 2.66,
+      "tail": [
+        "....                                                                     [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "tests/test_v12_models.py::test_freezer_deposit_fen_optional_and_nonneg",
+        "  D:\\item\\beverage distribution\\backend\\tests\\conftest.py:75: SAWarning: transaction already deassociated from connection",
+        "    trans.rollback()",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "4 passed, 2 warnings in 1.32s"
+      ]
+    },
+    {
+      "step_id": "Q175_transaction_consistency",
+      "title": "任一点失败：事务整体回滚、无半成品、无脏流水",
+      "prd": "§3.5 事务边界 / 红线",
+      "kind": "test",
+      "nodes": [
+        "tests/test_t30_full_chain_uat.py::test_q175_failure_mid_chain_rolls_back_consistently"
+      ],
+      "ok": true,
+      "returncode": 0,
+      "seconds": 2.41,
+      "tail": [
+        ".                                                                        [100%]",
+        "============================== warnings summary ===============================",
+        ".venv\\Lib\\site-packages\\fastapi\\testclient.py:1",
+        "  D:\\item\\beverage distribution\\backend\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.",
+        "    from starlette.testclient import TestClient as TestClient  # noqa",
+        "",
+        "-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html",
+        "1 passed, 1 warning in 1.10s"
+      ]
+    },
+    {
+      "step_id": "Q176_migration_rollback",
+      "title": "迁移升级/回滚演练：alembic upgrade head → downgrade -1 → 再升级",
+      "prd": "§8 迁移",
+      "kind": "script",
+      "command": "alembic upgrade head && alembic downgrade -1 && alembic upgrade head",
+      "ok": true,
+      "returncode": 0,
+      "seconds": 3.96,
+      "tail": [
+        "INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.",
+        "INFO  [alembic.runtime.migration] Will assume transactional DDL.",
+        "INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.",
+        "INFO  [alembic.runtime.migration] Will assume transactional DDL.",
+        "INFO  [alembic.runtime.migration] Running downgrade a7c2e9f4b105 -> f4a6b9d2c7e3, T27: notification_reads (per-user read state for derived notifications)",
+        "INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.",
+        "INFO  [alembic.runtime.migration] Will assume transactional DDL.",
+        "INFO  [alembic.runtime.migration] Running upgrade f4a6b9d2c7e3 -> a7c2e9f4b105, T27: notification_reads (per-user read state for derived notifications)"
+      ]
+    }
+  ]
+}

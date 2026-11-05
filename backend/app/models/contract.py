@@ -1,106 +1,116 @@
-"""合同、合同变更、合同审批。"""
-
-from __future__ import annotations
-
 from datetime import date
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
-    CheckConstraint,
+    BigInteger,
     Date,
     ForeignKey,
-    Index,
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import AuditMixin, Base, DatasetMixin, ImmutableMixin, pk_uuid
+from app.db.base import AuditMixin, Base, DatasetMixin, pk_uuid
 from app.models.enums import ContractStatus
 
 
-class Contract(Base, ImmutableMixin, AuditMixin, DatasetMixin):
+class Contract(AuditMixin, DatasetMixin, Base):
     __tablename__ = "contracts"
-    __table_args__ = (
-        UniqueConstraint(
-            "dataset_type", "dataset_id", "code", name="uq_contracts_dataset_code"
-        ),
-        CheckConstraint(
-            "status IN ('DRAFT','PENDING_APPROVAL','ACTIVE','EXPIRED','TERMINATED')",
-            name="contracts_status_check",
-        ),
-        CheckConstraint("end_date >= start_date", name="contracts_date_range"),
-        CheckConstraint("monthly_rent_fen >= 0", name="contracts_monthly_rent_nonneg"),
-        # 陈列达标阈值（百分比 0-100）
-        CheckConstraint(
-            "display_threshold_pct >= 0 AND display_threshold_pct <= 100",
-            name="contracts_display_threshold_range",
-        ),
-        Index("ix_contracts_merchant", "merchant_id"),
-        Index("ix_contracts_status_end", "status", "end_date"),
-    )
+    __table_args__ = (UniqueConstraint("contract_no", name="uq_contracts_contract_no"),)
 
     id: Mapped[UUID] = pk_uuid()
-    code: Mapped[str] = mapped_column(String(32), nullable=False)
     merchant_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("merchants.id", ondelete="RESTRICT"), nullable=False
+        PG_UUID(as_uuid=True), ForeignKey("merchants.id"), nullable=False, index=True
     )
+    contract_no: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    party_name: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(
-        String(16),
-        nullable=False,
+        String(24),
         default=ContractStatus.DRAFT.value,
-        server_default=text("'DRAFT'"),
+        nullable=False,
+        index=True,
     )
-    start_date: Mapped[date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    template_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    signed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expire_at: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 4), nullable=True)
+    # 陈列补贴金额：BIGINT 存“分”（红线：金额一律 BIGINT 分，业务层用 Decimal 换算）
+    display_subsidy_amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sales_rep_user_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    manager_user_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    attachment_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    extra: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+    # ---- T09：合同固化口径（PRD §4.4 陈列阈值/提成规则版本/当前版本号）----
+    # 陈列达标最低占比百分比（0-100），默认 50；建合同即固化，Q045 验证生效后不可变
     display_threshold_pct: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=50, server_default=text("50")
+        Integer, nullable=False, server_default=text("50")
     )
-    monthly_rent_fen: Mapped[int] = mapped_column(
-        nullable=False, default=0, server_default=text("0")
+    # 提成规则版本（规则中心版本号）；合同生效时固化，变更不覆盖历史
+    commission_rule_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # 当前最新版本号，从 1 起，每次批准/变更 +1
+    current_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    # 续签评估待办已生成所对应的到期日（幂等标记；同一到期周期不重复生成，R38）
+    renewal_generated_for_expire_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # 续约来源：本份合同由哪份合同续约而来（同一商家，新合同生效日必须晚于旧合同到期日）
+    renewed_from_contract_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("contracts.id"),
+        nullable=True,
+        index=True,
     )
-    # 提成比例（0-1，DECIMAL(5,4) 保留 4 位小数）
-    commission_rate: Mapped[Decimal] = mapped_column(
-        Numeric(5, 4), nullable=False, default=Decimal("0"), server_default=text("0")
-    )
+    # 店长姓名：纸质合同乙方签署人；创建草稿时可由商家主联系人自动预填
+    store_manager_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 纸质合同正文（模板渲染结果，草稿期可手工修订；审批生效后随版本快照固化）
+    body_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class ContractChange(Base, AuditMixin):
-    """合同变更/终止：物理历史，不删改（PRD §1.5）。"""
+class ContractVersion(AuditMixin, DatasetMixin, Base):
+    """合同版本快照（T09 / PRD §4.4）。
 
-    __tablename__ = "contract_changes"
+    首次批准生效生成 v1；变更生效生成新版本。旧版本完整保留（Q046），
+    合同主表字段始终指向最新版本；生效后历史版本不可覆盖。
+    """
+
+    __tablename__ = "contract_versions"
     __table_args__ = (
-        Index("ix_contract_changes_contract", "contract_id"),
+        UniqueConstraint("contract_id", "version", name="uq_contract_versions_no"),
     )
 
     id: Mapped[UUID] = pk_uuid()
     contract_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("contracts.id", ondelete="RESTRICT"), nullable=False
+        PG_UUID(as_uuid=True), ForeignKey("contracts.id"), nullable=False, index=True
     )
-    change_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    before_snapshot: Mapped[dict[str, Any]] = mapped_column(nullable=False)
-    after_snapshot: Mapped[dict[str, Any]] = mapped_column(nullable=False)
-    reason: Mapped[str] = mapped_column(String(255), nullable=False)
-
-
-class ContractApproval(Base, AuditMixin):
-    __tablename__ = "contract_approvals"
-    __table_args__ = (
-        Index("ix_contract_approvals_contract", "contract_id"),
-    )
-
-    id: Mapped[UUID] = pk_uuid()
-    contract_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("contracts.id", ondelete="RESTRICT"), nullable=False
-    )
-    decision: Mapped[str] = mapped_column(String(16), nullable=False)
-    approver_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
-    )
-    comment: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # INIT 首次生效 / CHANGE 变更 / TERMINATE 终止留档
+    change_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    party_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    template_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    signed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expire_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    commission_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 4), nullable=True)
+    # 同主表：金额 BIGINT 存分
+    display_subsidy_amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    display_threshold_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    commission_rule_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # 与主表一致：纸质合同签署人与正文随版本固化
+    store_manager_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    body_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachment_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

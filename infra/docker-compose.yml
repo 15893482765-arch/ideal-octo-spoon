@@ -32,6 +32,21 @@ services:
       retries: 10
     restart: unless-stopped
 
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    container_name: qinshuang-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrantdata:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/localhost/6333' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   minio:
     image: minio/minio:latest
     container_name: qinshuang-minio
@@ -51,6 +66,64 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # 迁移：一次性 init 容器，先于 API 启动；应用镜像自带 alembic（T30/Q177）
+  migrate:
+    image: ${API_IMAGE:-qinshuang-backend:t30}
+    container_name: qinshuang-migrate
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY required}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-qinshuang}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-qinshuang}
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY required}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY required}
+      S3_BUCKET: ${S3_BUCKET:-qinshuang}
+    restart: "no"
+
+  api:
+    image: ${API_IMAGE:-qinshuang-backend:t30}
+    container_name: qinshuang-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY required}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-qinshuang}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-qinshuang}
+      REDIS_URL: redis://redis:6379/0
+      QDRANT_ENABLED: ${QDRANT_ENABLED:-true}
+      QDRANT_URL: ${QDRANT_URL:-http://qdrant:6333}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY required}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY required}
+      S3_BUCKET: ${S3_BUCKET:-qinshuang}
+      # 首任管理员：仅在空库首次启动时生效；上线后立即从 .env 移除该密码
+      INITIAL_ADMIN_BOOTSTRAP: ${INITIAL_ADMIN_BOOTSTRAP:-false}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      INITIAL_ADMIN_DISPLAY_NAME: ${INITIAL_ADMIN_DISPLAY_NAME:-部署管理员}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
 volumes:
   pgdata:
   miniodata:
+  qdrantdata:
