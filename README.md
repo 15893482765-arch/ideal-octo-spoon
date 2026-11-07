@@ -246,6 +246,10 @@ CI（`.github/workflows/ci.yml`）在 push / PR 时执行：后端 ruff + mypy +
 └── .github/workflows/     # CI
 ```
 
+### 项目截图展示
+![图片描述](https://raw.githubusercontent.com/15893482765-arch/ideal-octo-spoon/refs/heads/main/images/imag2.png)
+![图片描述](https://github.com/15893482765-arch/ideal-octo-spoon/blob/main/images/image1.png)
+
 ## 已知边界
 
 - **单租户形态**：面向单一企业的部署，未实现订阅计费与自助开通，严格意义上不是 SaaS。
